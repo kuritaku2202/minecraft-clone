@@ -1,33 +1,53 @@
 import { Chunk, CHUNK_SIZE, CHUNK_HEIGHT } from './Chunk';
 import { World } from './World';
-import { isOpaque, tileForFace, type FaceKey } from './BlockRegistry';
+import { BlockId, isOpaque, tileForFace, type FaceKey } from './BlockRegistry';
 
 /**
- * Greedy mesher with per-vertex ambient occlusion (Sprint 4).
+ * Greedy mesher with per-vertex ambient occlusion (Sprint 4), bit-packed vertex
+ * data and a transparent water pass (Sprint 8).
  *
  * For each of the 3 axes it sweeps slices, builds a 2D face mask, then merges
  * runs of identical faces (same tile, same direction, same 4 AO values) into
  * large rectangles — drastically cutting vertex count vs. the per-face mesher.
  *
- * Merged quads tile their tile texture via REPEAT-wrapped UVs that exceed 1, so
- * a single layer of the DataArrayTexture repeats once per block.
+ * Each vertex is packed into a single 32-bit integer (chunk-LOCAL coords):
  *
- * The research document recommends bit-packing the per-vertex attributes
- * (faceId/tileId/AO/light) into one 32-bit integer. We keep them as separate
- * float attributes here for simpler WebGL handling; the packing is a pure
- * bandwidth optimisation that can be layered on without changing the geometry.
+ *   bits  0..4   localX (5)   0..16   quad corners (<= CHUNK_SIZE)
+ *   bits  5..13  localY (9)   0..256  quad corners (<= CHUNK_HEIGHT)
+ *   bits 14..18  localZ (5)   0..16
+ *   bits 19..21  faceId (3)   0..5
+ *   bits 22..23  ao     (2)   0..3
+ *   bits 24..31  tile   (8)   0..255  texture-array layer
+ *
+ * UV and shade are NOT stored: the vertex shader derives them from the unpacked
+ * local position + faceId (REPEAT-wrapped UVs tile per block; shade is a
+ * per-face constant). The mesh is emitted in chunk-local space and translated by
+ * the renderer, which keeps positions inside the 5/9/5-bit budget.
+ *
+ * Two passes share the sweep: an opaque pass (terrain) and a water pass (the
+ * semi-transparent water surface against air). Block access goes through an
+ * injected {@link BlockSampler} so the mesher can run on the main thread or in a
+ * Web Worker over a transferred snapshot.
  */
 
 export interface MeshData {
-  positions: Float32Array;
-  uvs: Float32Array;
-  layers: Float32Array;
-  aos: Float32Array;
-  shades: Float32Array;
+  /** One packed uint32 per vertex (see the bit layout above). */
+  data: Uint32Array;
   indices: Uint32Array;
   quadCount: number;
   vertexCount: number;
+  /** Local Y extent of the emitted geometry, for a tight bounding sphere. */
+  yMin: number;
+  yMax: number;
 }
+
+export interface ChunkMeshData {
+  opaque: MeshData;
+  water: MeshData;
+}
+
+/** Reads a block id at chunk-local coords, which may range -1..CHUNK_SIZE etc. */
+export type BlockSampler = (lx: number, ly: number, lz: number) => number;
 
 const DIMS = [CHUNK_SIZE, CHUNK_HEIGHT, CHUNK_SIZE];
 
@@ -40,16 +60,18 @@ const AXIS: ReadonlyArray<readonly [number, number, number]> = [
 
 interface FaceEntry {
   tile: number; // texture-array layer
-  faceId: number; // 0..5 (for shade + equality)
-  shade: number;
+  faceId: number; // 0..5 (for shade + equality), d*2 + (positive?0:1)
   ao: [number, number, number, number]; // corner AO at (0,0)(1,0)(1,1)(0,1)
 }
 
-function faceShade(d: number, positive: boolean): number {
-  if (d === 1) return positive ? 1.0 : 0.5; // top : bottom
-  if (d === 0) return 0.6; // east/west
-  return 0.8; // north/south
-}
+/** Decides whether a face exists at the boundary between cells A and B. */
+type Classifier = (
+  d: number,
+  uVec: readonly [number, number, number],
+  vVec: readonly [number, number, number],
+  aPos: [number, number, number],
+  bPos: [number, number, number],
+) => FaceEntry | null;
 
 function faceKeyFor(d: number, positive: boolean): FaceKey {
   if (d === 1) return positive ? 'top' : 'bottom';
@@ -68,21 +90,16 @@ function entriesEqual(a: FaceEntry | null, b: FaceEntry | null): boolean {
   );
 }
 
-export function buildChunkMesh(chunk: Chunk, world: World): MeshData {
-  const baseX = chunk.cx * CHUNK_SIZE;
-  const baseZ = chunk.cz * CHUNK_SIZE;
+/** Build a sampler that reads directly from the loaded world (main thread). */
+export function worldSampler(world: World, cx: number, cz: number): BlockSampler {
+  const baseX = cx * CHUNK_SIZE;
+  const baseZ = cz * CHUNK_SIZE;
+  return (lx, ly, lz) => world.getBlock(baseX + lx, ly, baseZ + lz);
+}
 
+export function buildChunkMesh(sample: BlockSampler): ChunkMeshData {
   const opaqueAt = (lx: number, ly: number, lz: number): boolean =>
-    isOpaque(world.getBlock(baseX + lx, ly, baseZ + lz));
-  const idAt = (lx: number, ly: number, lz: number): number =>
-    world.getBlock(baseX + lx, ly, baseZ + lz);
-
-  const positions: number[] = [];
-  const uvs: number[] = [];
-  const layers: number[] = [];
-  const aos: number[] = [];
-  const shades: number[] = [];
-  const indices: number[] = [];
+    isOpaque(sample(lx, ly, lz));
 
   const aoForCorner = (
     front: [number, number, number],
@@ -115,6 +132,58 @@ export function buildChunkMesh(chunk: Chunk, world: World): MeshData {
     return s1 && s2 ? 0 : 3 - (s1 + s2 + cor);
   };
 
+  // Opaque terrain: a face exists where opacity differs; it belongs to the solid
+  // cell, faces the empty cell, and carries 4-corner AO.
+  const classifyOpaque: Classifier = (d, uVec, vVec, aPos, bPos) => {
+    const aOpaque = opaqueAt(aPos[0], aPos[1], aPos[2]);
+    const bOpaque = opaqueAt(bPos[0], bPos[1], bPos[2]);
+    if (aOpaque === bOpaque) return null;
+    const positive = aOpaque; // normal points +d when A is solid
+    const solid = aOpaque ? aPos : bPos;
+    const front = aOpaque ? bPos : aPos;
+    const id = sample(solid[0], solid[1], solid[2]);
+    return {
+      tile: tileForFace(id, faceKeyFor(d, positive)),
+      faceId: d * 2 + (positive ? 0 : 1),
+      ao: [
+        aoForCorner(front, uVec, vVec, -1, -1),
+        aoForCorner(front, uVec, vVec, 1, -1),
+        aoForCorner(front, uVec, vVec, 1, 1),
+        aoForCorner(front, uVec, vVec, -1, 1),
+      ],
+    };
+  };
+
+  // Water surface: a face exists only where water borders air (water/solid is
+  // hidden by terrain; water/water is internal). Flat AO — water gets no
+  // occlusion shading.
+  const classifyWater: Classifier = (d, _uVec, _vVec, aPos, bPos) => {
+    const aId = sample(aPos[0], aPos[1], aPos[2]);
+    const bId = sample(bPos[0], bPos[1], bPos[2]);
+    const aWater = aId === BlockId.Water;
+    const bWater = bId === BlockId.Water;
+    if (aWater === bWater) return null;
+    const other = aWater ? bId : aId;
+    if (other !== BlockId.Air) return null;
+    const positive = aWater; // normal points +d (toward air) when A is water
+    return {
+      tile: tileForFace(BlockId.Water, faceKeyFor(d, positive)),
+      faceId: d * 2 + (positive ? 0 : 1),
+      ao: [3, 3, 3, 3],
+    };
+  };
+
+  return {
+    opaque: meshPass(classifyOpaque),
+    water: meshPass(classifyWater),
+  };
+}
+
+function meshPass(classify: Classifier): MeshData {
+  const data: number[] = [];
+  const indices: number[] = [];
+  const bounds = { yMin: CHUNK_HEIGHT, yMax: 0 };
+
   for (let d = 0; d < 3; d++) {
     const u = (d + 1) % 3;
     const v = (d + 2) % 3;
@@ -140,31 +209,7 @@ export function buildChunkMesh(chunk: Chunk, world: World): MeshData {
             x[1] + AXIS[d][1],
             x[2] + AXIS[d][2],
           ];
-          const aOpaque = opaqueAt(aPos[0], aPos[1], aPos[2]);
-          const bOpaque = opaqueAt(bPos[0], bPos[1], bPos[2]);
-
-          let entry: FaceEntry | null = null;
-          if (aOpaque !== bOpaque) {
-            // The face belongs to the solid cell; its front is the empty cell.
-            const positive = aOpaque; // normal points +d when A is solid
-            const solid = aOpaque ? aPos : bPos;
-            const front = aOpaque ? bPos : aPos;
-            const id = idAt(solid[0], solid[1], solid[2]);
-            const tile = tileForFace(id, faceKeyFor(d, positive));
-            const faceId = d * 2 + (positive ? 0 : 1);
-            entry = {
-              tile,
-              faceId,
-              shade: faceShade(d, positive),
-              ao: [
-                aoForCorner(front, uVec, vVec, -1, -1),
-                aoForCorner(front, uVec, vVec, 1, -1),
-                aoForCorner(front, uVec, vVec, 1, 1),
-                aoForCorner(front, uVec, vVec, -1, 1),
-              ],
-            };
-          }
-          mask[n++] = entry;
+          mask[n++] = classify(d, uVec, vVec, aPos, bPos);
         }
       }
 
@@ -191,25 +236,7 @@ export function buildChunkMesh(chunk: Chunk, world: World): MeshData {
             h++;
           }
 
-          emitQuad(
-            positions,
-            uvs,
-            layers,
-            aos,
-            shades,
-            indices,
-            d,
-            u,
-            v,
-            sliceCoord,
-            i,
-            j,
-            w,
-            h,
-            e,
-            baseX,
-            baseZ,
-          );
+          emitQuad(data, indices, bounds, d, u, v, sliceCoord, i, j, w, h, e);
 
           for (let dj = 0; dj < h; dj++) {
             for (let di = 0; di < w; di++) {
@@ -223,24 +250,19 @@ export function buildChunkMesh(chunk: Chunk, world: World): MeshData {
   }
 
   return {
-    positions: new Float32Array(positions),
-    uvs: new Float32Array(uvs),
-    layers: new Float32Array(layers),
-    aos: new Float32Array(aos),
-    shades: new Float32Array(shades),
+    data: new Uint32Array(data),
     indices: new Uint32Array(indices),
     quadCount: indices.length / 6,
-    vertexCount: positions.length / 3,
+    vertexCount: data.length,
+    yMin: bounds.yMin,
+    yMax: bounds.yMax,
   };
 }
 
 function emitQuad(
-  positions: number[],
-  uvs: number[],
-  layers: number[],
-  aos: number[],
-  shades: number[],
+  data: number[],
   indices: number[],
+  bounds: { yMin: number; yMax: number },
   d: number,
   u: number,
   v: number,
@@ -250,65 +272,41 @@ function emitQuad(
   w: number,
   h: number,
   e: FaceEntry,
-  baseX: number,
-  baseZ: number,
 ): void {
   const positive = e.faceId % 2 === 0;
 
-  // Build the 4 corners (u,v) = (0,0),(w,0),(w,h),(0,h).
+  // Build the 4 corners (u,v) = (0,0),(w,0),(w,h),(0,h) in chunk-local space.
   const corner = (uOff: number, vOff: number): [number, number, number] => {
     const p = [0, 0, 0];
     p[d] = sliceCoord;
     p[u] = uStart + uOff;
     p[v] = vStart + vOff;
-    return [p[0] + baseX, p[1], p[2] + baseZ];
+    return [p[0], p[1], p[2]];
   };
   const c0 = corner(0, 0);
   const c1 = corner(w, 0);
   const c2 = corner(w, h);
   const c3 = corner(0, h);
 
-  // UVs: keep world-Y on the texture T axis so side tiles stay upright.
-  let uv0: [number, number];
-  let uv1: [number, number];
-  let uv2: [number, number];
-  let uv3: [number, number];
-  if (u === 1) {
-    // u axis is Y: S follows v-extent, T follows u-extent.
-    uv0 = [0, 0];
-    uv1 = [0, w];
-    uv2 = [h, w];
-    uv3 = [h, 0];
-  } else if (v === 1) {
-    // v axis is Y: S follows u-extent, T follows v-extent.
-    uv0 = [0, 0];
-    uv1 = [w, 0];
-    uv2 = [w, h];
-    uv3 = [0, h];
-  } else {
-    // Top/bottom: orientation irrelevant.
-    uv0 = [0, 0];
-    uv1 = [w, 0];
-    uv2 = [w, h];
-    uv3 = [0, h];
-  }
-
-  const base = positions.length / 3;
-  const push = (
-    c: [number, number, number],
-    uv: [number, number],
-    aoVal: number,
-  ): void => {
-    positions.push(c[0], c[1], c[2]);
-    uvs.push(uv[0], uv[1]);
-    layers.push(e.tile);
-    aos.push(aoVal);
-    shades.push(e.shade);
+  const base = data.length;
+  const push = (c: [number, number, number], aoVal: number): void => {
+    if (c[1] < bounds.yMin) bounds.yMin = c[1];
+    if (c[1] > bounds.yMax) bounds.yMax = c[1];
+    // Pack: x(5) | y(9) | z(5) | faceId(3) | ao(2) | tile(8).
+    data.push(
+      (c[0] |
+        (c[1] << 5) |
+        (c[2] << 14) |
+        (e.faceId << 19) |
+        (aoVal << 22) |
+        (e.tile << 24)) >>>
+        0,
+    );
   };
-  push(c0, uv0, e.ao[0]);
-  push(c1, uv1, e.ao[1]);
-  push(c2, uv2, e.ao[2]);
-  push(c3, uv3, e.ao[3]);
+  push(c0, e.ao[0]);
+  push(c1, e.ao[1]);
+  push(c2, e.ao[2]);
+  push(c3, e.ao[3]);
 
   // Flip the triangulation diagonal when AO is asymmetric (anisotropy fix).
   const flip = e.ao[0] + e.ao[2] < e.ao[1] + e.ao[3];

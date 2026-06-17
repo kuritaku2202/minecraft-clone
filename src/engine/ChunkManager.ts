@@ -25,9 +25,9 @@ interface Offset {
  * generated so cross-chunk culling/AO are correct), and unloads chunks that
  * fall outside the keep radius. Work is frame-budgeted to avoid stalls.
  *
- * Meshing runs on the main thread with a small per-frame budget. The mesher is
- * pure (no Three.js / DOM deps), so it can be moved to a Web Worker later
- * without changing this controller.
+ * Streaming meshing is dispatched to a Web-Worker pool (see ChunkMeshManager);
+ * the per-frame budget limits dispatches, not completions. Spawn preload meshes
+ * synchronously so the player sees ground on the first frame.
  */
 export class ChunkManager {
   renderDistance = 8;
@@ -99,7 +99,7 @@ export class ChunkManager {
     }
     for (let dz = -radius; dz <= radius; dz++) {
       for (let dx = -radius; dx <= radius; dx++) {
-        this.meshMgr.rebuild(this.world, pcx + dx, pcz + dz);
+        this.meshMgr.rebuildSync(this.world, pcx + dx, pcz + dz);
       }
     }
   }
@@ -132,6 +132,7 @@ export class ChunkManager {
       if (
         this.world.getChunk(cx, cz) &&
         !this.meshMgr.isBuilt(cx, cz) &&
+        !this.meshMgr.isPending(cx, cz) &&
         this.allNeighboursGenerated(cx, cz)
       ) {
         this.meshMgr.rebuild(this.world, cx, cz);
