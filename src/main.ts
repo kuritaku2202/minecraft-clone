@@ -11,6 +11,7 @@ import { Interaction } from './player/Interaction';
 import { HUD } from './ui/HUD';
 import { GameStateAPI } from './debug/GameStateAPI';
 import { TerrainGenerator, SEA_LEVEL } from './terrain/TerrainGenerator';
+import { Sky } from './renderer/Sky';
 
 /**
  * Sprint 6: seeded multi-noise terrain (hills, plains, oceans, caves) streamed
@@ -29,7 +30,6 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87ceeb);
 
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -54,6 +54,12 @@ scene.add(meshMgr.group);
 const chunkManager = new ChunkManager(world, meshMgr, (chunk) =>
   terrain.generate(chunk),
 );
+
+// Sky dome + day/night cycle. Matches fog distance to the render radius so the
+// streaming boundary fades into the horizon instead of popping in.
+const sky = new Sky(scene);
+chunkMaterial.uniforms.uFogFar.value = 118;
+chunkMaterial.uniforms.uFogNear.value = 72;
 
 // Find a dry-land spawn near the origin (spiral out until above sea level).
 function findSpawn(): THREE.Vector3 {
@@ -125,6 +131,11 @@ function animate() {
   camera.rotation.x = controls.pitch;
   camera.rotation.y = controls.yaw;
 
+  // Day/night cycle drives terrain brightness + fog colour.
+  sky.update(dt, camera.position);
+  chunkMaterial.uniforms.uDayLight.value = sky.daylight;
+  chunkMaterial.uniforms.uFogColor.value.copy(sky.fogColor);
+
   interaction.update(dt);
 
   renderer.render(scene, camera);
@@ -170,11 +181,17 @@ animate();
   gameState,
   terrain,
   seed,
+  sky,
   getFrames: () => frames,
   debug: {
     pos: () => player.position.toArray(),
     seed: () => seed,
     heightAt: (x: number, z: number) => terrain.heightAt(x, z),
+    setTime: (t: number) => sky.setTime(t),
+    time: () => sky.time,
+    daylight: () => sky.daylight,
+    fogColor: () => `#${sky.fogColor.getHexString()}`,
+    fogFar: () => chunkMaterial.uniforms.uFogFar.value,
     vel: () => player.velocity.toArray(),
     onGround: () => player.onGround,
     yaw: () => controls.yaw,
@@ -192,6 +209,6 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 6 — noise terrain (seed ${seed}) · WASD · L-break · R-place`;
+  bootStatus.textContent = `Sprint 7 — sky + day/night + fog (seed ${seed})`;
 }
-console.log(`[Minecraft Clone] Sprint 6 — noise terrain online (seed ${seed})`);
+console.log(`[Minecraft Clone] Sprint 7 — sky + day/night + fog online (seed ${seed})`);

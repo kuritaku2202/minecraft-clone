@@ -24,12 +24,15 @@ in float aShade;
 out vec2 vUv;
 out float vLayer;
 out float vShade;
+out float vViewDist;
 const float aoLevels[4] = float[4](${AO_LEVELS});
 void main() {
   vUv = uv;
   vLayer = aLayer;
   vShade = aShade * aoLevels[int(aAO + 0.5)];
-  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  vec4 viewPos = modelViewMatrix * vec4(position, 1.0);
+  vViewDist = -viewPos.z; // positive distance from camera
+  gl_Position = projectionMatrix * viewPos;
 }
 `;
 
@@ -37,22 +40,36 @@ const fragmentShader = /* glsl */ `
 precision highp float;
 precision highp sampler2DArray;
 uniform sampler2DArray uAtlas;
+uniform float uDayLight;
+uniform vec3 uFogColor;
+uniform float uFogNear;
+uniform float uFogFar;
 in vec2 vUv;
 in float vLayer;
 in float vShade;
+in float vViewDist;
 out vec4 outColor;
 void main() {
   vec4 texel = texture(uAtlas, vec3(vUv, vLayer));
-  outColor = vec4(texel.rgb * vShade, 1.0);
+  vec3 col = texel.rgb * vShade * uDayLight;
+  float fog = clamp((vViewDist - uFogNear) / (uFogFar - uFogNear), 0.0, 1.0);
+  col = mix(col, uFogColor, fog);
+  outColor = vec4(col, 1.0);
 }
 `;
 
 export function createChunkMaterial(
   atlas: THREE.DataArrayTexture,
-): THREE.Material {
+): THREE.RawShaderMaterial {
   return new THREE.RawShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { uAtlas: { value: atlas } },
+    uniforms: {
+      uAtlas: { value: atlas },
+      uDayLight: { value: 1 },
+      uFogColor: { value: new THREE.Color(0x9fc4ec) },
+      uFogNear: { value: 70 },
+      uFogFar: { value: 118 },
+    },
     vertexShader,
     fragmentShader,
     side: THREE.FrontSide,
