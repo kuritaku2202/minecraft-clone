@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { World, generateFlatChunk } from './engine/World';
 import { CHUNK_SIZE } from './engine/Chunk';
-import { createAtlasTexture } from './engine/textures';
+import { buildTileArrayTexture } from './engine/textures';
+import { countVisibleFaces } from './engine/ChunkMesher';
 import { createChunkMaterial } from './renderer/ChunkRenderer';
 import { ChunkMeshManager } from './renderer/ChunkMeshManager';
 import { Player } from './player/Player';
@@ -10,9 +11,12 @@ import { Interaction } from './player/Interaction';
 import { HUD } from './ui/HUD';
 
 /**
- * Sprint 3: block breaking/placing with voxel raycasting, a crosshair + target
- * highlight, and per-chunk mesh rebuilds on edit.
+ * Sprint 4: greedy meshing + ambient occlusion via a texture-array material.
+ * Block breaking/placing, crosshair + highlight, and per-chunk rebuilds remain.
  */
+
+// Stylised colours: emit authored values directly, no sRGB/linear conversion.
+THREE.ColorManagement.enabled = false;
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 const bootStatus = document.getElementById('boot-status');
@@ -20,7 +24,7 @@ const bootStatus = document.getElementById('boot-status');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
@@ -43,11 +47,22 @@ for (let cx = 0; cx < GRID; cx++) {
 }
 
 // ----- Meshing -----
-const atlas = createAtlasTexture();
+const atlas = buildTileArrayTexture();
 const chunkMaterial = createChunkMaterial(atlas);
 const meshMgr = new ChunkMeshManager(chunkMaterial);
 scene.add(meshMgr.group);
 meshMgr.rebuildAll(world);
+
+// Report greedy-meshing savings vs. the naive culled face count.
+let naiveFaces = 0;
+for (const chunk of world.chunks.values()) {
+  naiveFaces += countVisibleFaces(chunk, world);
+}
+const greedyQuads = meshMgr.totalQuads;
+console.log(
+  `[Minecraft Clone] greedy meshing: ${greedyQuads} quads vs ${naiveFaces} culled faces ` +
+    `(${(100 * (1 - greedyQuads / naiveFaces)).toFixed(1)}% fewer)`,
+);
 
 // ----- Player, controls, HUD, interaction -----
 const spawn = new THREE.Vector3((GRID * CHUNK_SIZE) / 2, 70, (GRID * CHUNK_SIZE) / 2);
@@ -74,6 +89,11 @@ const clock = new THREE.Clock();
 const eye = new THREE.Vector3();
 let frames = 0;
 
+// Rolling FPS estimate over ~0.5s windows.
+let fps = 0;
+let fpsFrames = 0;
+let fpsAccum = 0;
+
 function animate() {
   requestAnimationFrame(animate);
   let dt = clock.getDelta();
@@ -90,6 +110,14 @@ function animate() {
 
   renderer.render(scene, camera);
   frames++;
+
+  fpsFrames++;
+  fpsAccum += dt;
+  if (fpsAccum >= 0.5) {
+    fps = fpsFrames / fpsAccum;
+    fpsFrames = 0;
+    fpsAccum = 0;
+  }
 }
 animate();
 
@@ -115,11 +143,14 @@ animate();
     held: () => interaction.heldBlock,
     block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
     meshCount: () => meshMgr.meshCount,
+    greedyQuads: () => meshMgr.totalQuads,
+    naiveFaces: () => naiveFaces,
+    fps: () => fps,
   },
 };
 
 if (bootStatus) {
   bootStatus.textContent =
-    'Sprint 3 — L-click break · R-click place · 1/2/3 select block';
+    'Sprint 4 — greedy mesh + AO · L-break · R-place · 1/2/3 block';
 }
-console.log('[Minecraft Clone] Sprint 3 — block interaction online');
+console.log('[Minecraft Clone] Sprint 4 — greedy meshing + AO online');

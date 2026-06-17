@@ -12,6 +12,7 @@ import { createChunkMesh } from './ChunkRenderer';
 export class ChunkMeshManager {
   readonly group = new THREE.Group();
   private readonly meshes = new Map<string, THREE.Mesh>();
+  private readonly quadCounts = new Map<string, number>();
 
   constructor(private readonly material: THREE.Material) {}
 
@@ -27,6 +28,7 @@ export class ChunkMeshManager {
       old.geometry.dispose();
       this.meshes.delete(key);
     }
+    this.quadCounts.delete(key);
 
     const chunk = world.getChunk(cx, cz);
     if (!chunk) return;
@@ -37,6 +39,7 @@ export class ChunkMeshManager {
 
     const mesh = createChunkMesh(data, this.material);
     this.meshes.set(key, mesh);
+    this.quadCounts.set(key, data.quadCount);
     this.group.add(mesh);
   }
 
@@ -62,5 +65,11 @@ export class ChunkMeshManager {
 
   get meshCount(): number {
     return this.meshes.size;
+  }
+
+  get totalQuads(): number {
+    let total = 0;
+    for (const c of this.quadCounts.values()) total += c;
+    return total;
   }
 }
