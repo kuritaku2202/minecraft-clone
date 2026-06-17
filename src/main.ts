@@ -4,11 +4,12 @@ import { CHUNK_SIZE } from './engine/Chunk';
 import { buildChunkMesh } from './engine/ChunkMesher';
 import { createAtlasTexture } from './engine/textures';
 import { createChunkMaterial, createChunkMesh } from './renderer/ChunkRenderer';
+import { Player } from './player/Player';
+import { Controls } from './player/Controls';
 
 /**
- * Sprint 1: render a flat 3x3-chunk world with hidden-face-culled meshing and
- * a procedural texture atlas. The camera is a static angled view above the
- * ground; real player controls arrive in Sprint 2.
+ * Sprint 2: first-person player with AABB physics on the flat world. Click to
+ * lock the pointer, WASD to move, Space to jump, Shift to sneak.
  */
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -23,11 +24,12 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87ceeb);
 
 const camera = new THREE.PerspectiveCamera(
-  70,
+  75,
   window.innerWidth / window.innerHeight,
   0.1,
   1000,
 );
+camera.rotation.order = 'YXZ';
 
 // ----- World generation (3x3 chunks of flat terrain) -----
 const GRID = 3;
@@ -48,15 +50,12 @@ for (const chunk of world.chunks.values()) {
   scene.add(createChunkMesh(data, chunkMaterial));
 }
 
-// ----- Camera: angled view above the terrain centre -----
-const center = new THREE.Vector3(
-  (GRID * CHUNK_SIZE) / 2,
-  66, // grass top sits at y=66
-  (GRID * CHUNK_SIZE) / 2,
-);
-const GROUND_TOP_Y = 66;
-camera.position.set(center.x + 30, 92, center.z + 52);
-camera.lookAt(center);
+// ----- Player + controls -----
+// Spawn slightly above the grass (top at y=66) so the player falls and lands,
+// demonstrating gravity + landing on the first frames.
+const spawn = new THREE.Vector3((GRID * CHUNK_SIZE) / 2, 70, (GRID * CHUNK_SIZE) / 2);
+const player = new Player(spawn);
+const controls = new Controls(canvas);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -64,9 +63,22 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+const clock = new THREE.Clock();
+const eye = new THREE.Vector3();
 let frames = 0;
+
 function animate() {
   requestAnimationFrame(animate);
+  let dt = clock.getDelta();
+  if (dt > 0.05) dt = 0.05; // clamp to avoid tunnelling after stalls
+
+  player.update(world, controls.getInput(), dt);
+
+  player.eyePosition(eye);
+  camera.position.copy(eye);
+  camera.rotation.x = controls.pitch;
+  camera.rotation.y = controls.yaw;
+
   renderer.render(scene, camera);
   frames++;
 }
@@ -78,19 +90,21 @@ animate();
   camera,
   renderer,
   world,
+  player,
+  controls,
   getFrames: () => frames,
-  stats: {
-    chunks: world.chunks.size,
-    quads: totalQuads,
-    cameraAboveGround: camera.position.y > GROUND_TOP_Y,
-    cameraY: camera.position.y,
-    groundTopY: GROUND_TOP_Y,
+  stats: { chunks: world.chunks.size, quads: totalQuads },
+  debug: {
+    pos: () => player.position.toArray(),
+    vel: () => player.velocity.toArray(),
+    onGround: () => player.onGround,
+    yaw: () => controls.yaw,
+    pitch: () => controls.pitch,
+    locked: () => controls.locked,
   },
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 1: ${world.chunks.size} chunks, ${totalQuads} quads`;
+  bootStatus.textContent = 'Sprint 2 — click to play · WASD move · Space jump';
 }
-console.log(
-  `[Minecraft Clone] Sprint 1 — ${world.chunks.size} chunks meshed, ${totalQuads} quads`,
-);
+console.log('[Minecraft Clone] Sprint 2 — player physics online');
