@@ -4,7 +4,7 @@ import { Player } from './Player';
 import { Controls } from './Controls';
 import { HUD } from '../ui/HUD';
 import { raycastVoxel, type VoxelHit } from '../engine/raycast';
-import { BlockId, isSolid, getBlockDef } from '../engine/BlockRegistry';
+import { BlockId, isSolid } from '../engine/BlockRegistry';
 
 /** Applies a block edit (write + re-mesh + notify); supplied by ChunkManager. */
 export type EditBlockFn = (x: number, y: number, z: number, id: BlockId) => void;
@@ -20,6 +20,8 @@ const BREAK_TIME = 0.35; // seconds to break a block (uniform for now)
 export class Interaction {
   target: VoxelHit | null = null;
   heldBlock: BlockId = BlockId.Stone;
+  /** When true (e.g. inventory open) break/place and targeting are suspended. */
+  blocked = false;
 
   private breaking = false;
   private breakProgress = 0;
@@ -45,6 +47,7 @@ export class Interaction {
     scene.add(this.highlight);
 
     canvas.addEventListener('mousedown', (e) => {
+      if (this.blocked) return;
       if (e.button === 0) this.breaking = true;
       else if (e.button === 2) this.place();
     });
@@ -52,19 +55,10 @@ export class Interaction {
       if (e.button === 0) this.cancelBreak();
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-
-    window.addEventListener('keydown', (e) => {
-      if (e.code === 'Digit1') this.setHeld(BlockId.Grass);
-      else if (e.code === 'Digit2') this.setHeld(BlockId.Dirt);
-      else if (e.code === 'Digit3') this.setHeld(BlockId.Stone);
-    });
-
-    this.hud.setHeldBlock(getBlockDef(this.heldBlock).name);
   }
 
   setHeld(id: BlockId): void {
     this.heldBlock = id;
-    this.hud.setHeldBlock(getBlockDef(id).name);
   }
 
   private editBlock(x: number, y: number, z: number, id: BlockId): void {
@@ -73,6 +67,8 @@ export class Interaction {
 
   /** Place the held block against the targeted face. */
   place(): boolean {
+    if (this.blocked) return false; // suspended (e.g. inventory open)
+    if (this.heldBlock === BlockId.Air) return false; // empty hotbar slot
     const hit = this.target;
     if (!hit) return false;
     const px = hit.x + hit.nx;
@@ -86,6 +82,7 @@ export class Interaction {
 
   /** Instantly break the targeted block (used by tests / creative). */
   breakTarget(): boolean {
+    if (this.blocked) return false; // suspended (e.g. inventory open)
     const hit = this.target;
     if (!hit) return false;
     this.editBlock(hit.x, hit.y, hit.z, BlockId.Air);
@@ -111,6 +108,15 @@ export class Interaction {
   }
 
   update(dt: number): void {
+    // While the inventory is open, suspend targeting/breaking entirely.
+    if (this.blocked) {
+      this.target = null;
+      this.highlight.visible = false;
+      if (this.breakProgress !== 0 || this.breaking) this.cancelBreak();
+      this.hud.setBreakProgress(0);
+      return;
+    }
+
     const eye = this.player.eyePosition(this.scratchEye);
     const { yaw, pitch } = this.controls;
     const cp = Math.cos(pitch);

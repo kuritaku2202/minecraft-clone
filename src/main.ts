@@ -9,9 +9,12 @@ import { Player } from './player/Player';
 import { Controls } from './player/Controls';
 import { Interaction } from './player/Interaction';
 import { HUD } from './ui/HUD';
+import { Hotbar } from './ui/Hotbar';
+import { Inventory } from './ui/Inventory';
 import { GameStateAPI } from './debug/GameStateAPI';
 import { TerrainGenerator, SEA_LEVEL } from './terrain/TerrainGenerator';
 import { Sky } from './renderer/Sky';
+import { BlockId } from './engine/BlockRegistry';
 
 /**
  * Sprint 6: seeded multi-noise terrain (hills, plains, oceans, caves) streamed
@@ -104,6 +107,66 @@ const interaction = new Interaction(
   canvas,
 );
 
+// ----- Hotbar + creative inventory (Sprint 9) -----
+// Every placeable/known block; the inventory lists them, the hotbar holds 9.
+const AVAILABLE_BLOCKS = [
+  BlockId.Grass,
+  BlockId.Dirt,
+  BlockId.Stone,
+  BlockId.Sand,
+  BlockId.Water,
+];
+const hotbar = new Hotbar([
+  BlockId.Grass,
+  BlockId.Dirt,
+  BlockId.Stone,
+  BlockId.Sand,
+  BlockId.Water,
+]);
+const inventory = new Inventory(AVAILABLE_BLOCKS);
+
+// The hotbar's selected slot is the single source of truth for the held block.
+hotbar.setOnChange((block) => interaction.setHeld(block));
+interaction.setHeld(hotbar.selectedBlock());
+
+// Picking a block in the inventory drops it into the selected hotbar slot.
+inventory.setOnPick((block) => hotbar.setSlot(hotbar.selected, block));
+
+function openInventory(): void {
+  if (inventory.isOpen) return;
+  inventory.open();
+  interaction.blocked = true;
+  if (document.pointerLockElement) document.exitPointerLock();
+}
+function closeInventory(): void {
+  if (!inventory.isOpen) return;
+  inventory.close();
+}
+// Re-enable interaction whenever the inventory closes (button, backdrop, or E).
+inventory.setOnClose(() => {
+  interaction.blocked = false;
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyE') {
+    e.preventDefault();
+    inventory.isOpen ? closeInventory() : openInventory();
+  } else if (e.code === 'Escape') {
+    closeInventory();
+  } else if (e.code.startsWith('Digit')) {
+    const n = Number(e.code.slice(5));
+    if (n >= 1 && n <= 9) hotbar.select(n - 1);
+  }
+});
+window.addEventListener(
+  'wheel',
+  (e) => {
+    if (inventory.isOpen) return;
+    hotbar.scroll(e.deltaY);
+  },
+  { passive: true },
+);
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
@@ -143,6 +206,7 @@ function animate() {
   }
 
   interaction.update(dt);
+  hotbar.update(dt);
 
   renderer.render(scene, camera);
   frames++;
@@ -188,6 +252,8 @@ animate();
   terrain,
   seed,
   sky,
+  hotbar,
+  inventory,
   getFrames: () => frames,
   debug: {
     pos: () => player.position.toArray(),
@@ -205,6 +271,14 @@ animate();
     locked: () => controls.locked,
     target: () => interaction.target,
     held: () => interaction.heldBlock,
+    hotbarSelected: () => hotbar.selected,
+    hotbarSlots: () => hotbar.slots.slice(),
+    selectSlot: (i: number) => hotbar.select(i),
+    scrollHotbar: (d: number) => hotbar.scroll(d),
+    inventoryOpen: () => inventory.isOpen,
+    openInventory: () => openInventory(),
+    closeInventory: () => closeInventory(),
+    pickBlock: (b: number) => hotbar.setSlot(hotbar.selected, b as BlockId),
     block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
     meshCount: () => meshMgr.meshCount,
     totalQuads: () => meshMgr.totalQuads,
@@ -217,8 +291,8 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 8 — bit-packed meshing + workers + water (seed ${seed})`;
+  bootStatus.textContent = `Sprint 9 — hotbar + inventory  ·  [1–9]/wheel select  ·  [E] inventory (seed ${seed})`;
 }
 console.log(
-  `[Minecraft Clone] Sprint 8 — bit-packed meshing + workers + water online (seed ${seed})`,
+  `[Minecraft Clone] Sprint 9 — hotbar + creative inventory online (seed ${seed})`,
 );
