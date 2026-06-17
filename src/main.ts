@@ -1,15 +1,17 @@
 import * as THREE from 'three';
 import { World, generateFlatChunk } from './engine/World';
 import { CHUNK_SIZE } from './engine/Chunk';
-import { buildChunkMesh } from './engine/ChunkMesher';
 import { createAtlasTexture } from './engine/textures';
-import { createChunkMaterial, createChunkMesh } from './renderer/ChunkRenderer';
+import { createChunkMaterial } from './renderer/ChunkRenderer';
+import { ChunkMeshManager } from './renderer/ChunkMeshManager';
 import { Player } from './player/Player';
 import { Controls } from './player/Controls';
+import { Interaction } from './player/Interaction';
+import { HUD } from './ui/HUD';
 
 /**
- * Sprint 2: first-person player with AABB physics on the flat world. Click to
- * lock the pointer, WASD to move, Space to jump, Shift to sneak.
+ * Sprint 3: block breaking/placing with voxel raycasting, a crosshair + target
+ * highlight, and per-chunk mesh rebuilds on edit.
  */
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -43,19 +45,24 @@ for (let cx = 0; cx < GRID; cx++) {
 // ----- Meshing -----
 const atlas = createAtlasTexture();
 const chunkMaterial = createChunkMaterial(atlas);
-let totalQuads = 0;
-for (const chunk of world.chunks.values()) {
-  const data = buildChunkMesh(chunk, world);
-  totalQuads += data.quadCount;
-  scene.add(createChunkMesh(data, chunkMaterial));
-}
+const meshMgr = new ChunkMeshManager(chunkMaterial);
+scene.add(meshMgr.group);
+meshMgr.rebuildAll(world);
 
-// ----- Player + controls -----
-// Spawn slightly above the grass (top at y=66) so the player falls and lands,
-// demonstrating gravity + landing on the first frames.
+// ----- Player, controls, HUD, interaction -----
 const spawn = new THREE.Vector3((GRID * CHUNK_SIZE) / 2, 70, (GRID * CHUNK_SIZE) / 2);
 const player = new Player(spawn);
 const controls = new Controls(canvas);
+const hud = new HUD();
+const interaction = new Interaction(
+  world,
+  player,
+  controls,
+  meshMgr,
+  hud,
+  scene,
+  canvas,
+);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -70,7 +77,7 @@ let frames = 0;
 function animate() {
   requestAnimationFrame(animate);
   let dt = clock.getDelta();
-  if (dt > 0.05) dt = 0.05; // clamp to avoid tunnelling after stalls
+  if (dt > 0.05) dt = 0.05;
 
   player.update(world, controls.getInput(), dt);
 
@@ -78,6 +85,8 @@ function animate() {
   camera.position.copy(eye);
   camera.rotation.x = controls.pitch;
   camera.rotation.y = controls.yaw;
+
+  interaction.update(dt);
 
   renderer.render(scene, camera);
   frames++;
@@ -92,8 +101,9 @@ animate();
   world,
   player,
   controls,
+  interaction,
+  meshMgr,
   getFrames: () => frames,
-  stats: { chunks: world.chunks.size, quads: totalQuads },
   debug: {
     pos: () => player.position.toArray(),
     vel: () => player.velocity.toArray(),
@@ -101,10 +111,15 @@ animate();
     yaw: () => controls.yaw,
     pitch: () => controls.pitch,
     locked: () => controls.locked,
+    target: () => interaction.target,
+    held: () => interaction.heldBlock,
+    block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
+    meshCount: () => meshMgr.meshCount,
   },
 };
 
 if (bootStatus) {
-  bootStatus.textContent = 'Sprint 2 — click to play · WASD move · Space jump';
+  bootStatus.textContent =
+    'Sprint 3 — L-click break · R-click place · 1/2/3 select block';
 }
-console.log('[Minecraft Clone] Sprint 2 — player physics online');
+console.log('[Minecraft Clone] Sprint 3 — block interaction online');
