@@ -13,11 +13,17 @@ export class ChunkMeshManager {
   readonly group = new THREE.Group();
   private readonly meshes = new Map<string, THREE.Mesh>();
   private readonly quadCounts = new Map<string, number>();
+  /** Chunks that have been meshed at least once (even if their mesh is empty). */
+  private readonly built = new Set<string>();
 
   constructor(private readonly material: THREE.Material) {}
 
   private static key(cx: number, cz: number): string {
     return `${cx},${cz}`;
+  }
+
+  isBuilt(cx: number, cz: number): boolean {
+    return this.built.has(ChunkMeshManager.key(cx, cz));
   }
 
   rebuild(world: World, cx: number, cz: number): void {
@@ -33,6 +39,7 @@ export class ChunkMeshManager {
     const chunk = world.getChunk(cx, cz);
     if (!chunk) return;
 
+    this.built.add(key);
     const data = buildChunkMesh(chunk, world);
     chunk.dirty = false;
     if (data.indices.length === 0) return; // fully empty chunk: no mesh
@@ -41,6 +48,19 @@ export class ChunkMeshManager {
     this.meshes.set(key, mesh);
     this.quadCounts.set(key, data.quadCount);
     this.group.add(mesh);
+  }
+
+  /** Dispose the mesh for a chunk and forget it (used when a chunk unloads). */
+  remove(cx: number, cz: number): void {
+    const key = ChunkMeshManager.key(cx, cz);
+    const mesh = this.meshes.get(key);
+    if (mesh) {
+      this.group.remove(mesh);
+      mesh.geometry.dispose();
+      this.meshes.delete(key);
+    }
+    this.quadCounts.delete(key);
+    this.built.delete(key);
   }
 
   rebuildAll(world: World): void {

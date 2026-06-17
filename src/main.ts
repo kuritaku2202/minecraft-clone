@@ -1,18 +1,19 @@
 import * as THREE from 'three';
-import { World, generateFlatChunk } from './engine/World';
+import { World } from './engine/World';
 import { CHUNK_SIZE } from './engine/Chunk';
+import { ChunkManager } from './engine/ChunkManager';
 import { buildTileArrayTexture } from './engine/textures';
-import { countVisibleFaces } from './engine/ChunkMesher';
 import { createChunkMaterial } from './renderer/ChunkRenderer';
 import { ChunkMeshManager } from './renderer/ChunkMeshManager';
 import { Player } from './player/Player';
 import { Controls } from './player/Controls';
 import { Interaction } from './player/Interaction';
 import { HUD } from './ui/HUD';
+import { GameStateAPI } from './debug/GameStateAPI';
 
 /**
- * Sprint 4: greedy meshing + ambient occlusion via a texture-array material.
- * Block breaking/placing, crosshair + highlight, and per-chunk rebuilds remain.
+ * Sprint 5: an effectively infinite flat world that streams chunks in/out
+ * around the player, plus a GameStateAPI monitoring surface.
  */
 
 // Stylised colours: emit authored values directly, no sRGB/linear conversion.
@@ -37,43 +38,30 @@ const camera = new THREE.PerspectiveCamera(
 );
 camera.rotation.order = 'YXZ';
 
-// ----- World generation (3x3 chunks of flat terrain) -----
-const GRID = 3;
+// ----- World + streaming -----
 const world = new World();
-for (let cx = 0; cx < GRID; cx++) {
-  for (let cz = 0; cz < GRID; cz++) {
-    generateFlatChunk(world.getOrCreateChunk(cx, cz));
-  }
-}
-
-// ----- Meshing -----
 const atlas = buildTileArrayTexture();
 const chunkMaterial = createChunkMaterial(atlas);
 const meshMgr = new ChunkMeshManager(chunkMaterial);
 scene.add(meshMgr.group);
-meshMgr.rebuildAll(world);
+const chunkManager = new ChunkManager(world, meshMgr);
 
-// Report greedy-meshing savings vs. the naive culled face count.
-let naiveFaces = 0;
-for (const chunk of world.chunks.values()) {
-  naiveFaces += countVisibleFaces(chunk, world);
-}
-const greedyQuads = meshMgr.totalQuads;
-console.log(
-  `[Minecraft Clone] greedy meshing: ${greedyQuads} quads vs ${naiveFaces} culled faces ` +
-    `(${(100 * (1 - greedyQuads / naiveFaces)).toFixed(1)}% fewer)`,
-);
-
-// ----- Player, controls, HUD, interaction -----
-const spawn = new THREE.Vector3((GRID * CHUNK_SIZE) / 2, 70, (GRID * CHUNK_SIZE) / 2);
+// ----- Player, controls, HUD, monitoring -----
+const spawn = new THREE.Vector3(8, 80, 8);
 const player = new Player(spawn);
 const controls = new Controls(canvas);
 const hud = new HUD();
+const gameState = new GameStateAPI();
+
+// Preload a small area so the player lands on ground immediately.
+chunkManager.preload(spawn.x, spawn.z, 2);
+chunkManager.onBlockEdit((x, y, z, id) => gameState.recordBlockEdit(x, y, z, id));
+
 const interaction = new Interaction(
   world,
   player,
   controls,
-  meshMgr,
+  (x, y, z, id) => chunkManager.editBlock(x, y, z, id),
   hud,
   scene,
   canvas,
@@ -94,12 +82,16 @@ let fps = 0;
 let fpsFrames = 0;
 let fpsAccum = 0;
 
+// Throttle state publishing to a few times per second.
+let publishAccum = 0;
+
 function animate() {
   requestAnimationFrame(animate);
   let dt = clock.getDelta();
   if (dt > 0.05) dt = 0.05;
 
   player.update(world, controls.getInput(), dt);
+  chunkManager.update(player.position.x, player.position.z);
 
   player.eyePosition(eye);
   camera.position.copy(eye);
@@ -118,6 +110,22 @@ function animate() {
     fpsFrames = 0;
     fpsAccum = 0;
   }
+
+  publishAccum += dt;
+  if (publishAccum >= 0.2) {
+    publishAccum = 0;
+    gameState.publish({
+      fps,
+      position: [player.position.x, player.position.y, player.position.z],
+      chunk: [
+        Math.floor(player.position.x / CHUNK_SIZE),
+        Math.floor(player.position.z / CHUNK_SIZE),
+      ],
+      chunksLoaded: world.chunks.size,
+      chunksMeshed: meshMgr.meshCount,
+      blockEdits: gameState.blockEdits,
+    });
+  }
 }
 animate();
 
@@ -131,6 +139,8 @@ animate();
   controls,
   interaction,
   meshMgr,
+  chunkManager,
+  gameState,
   getFrames: () => frames,
   debug: {
     pos: () => player.position.toArray(),
@@ -143,14 +153,15 @@ animate();
     held: () => interaction.heldBlock,
     block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
     meshCount: () => meshMgr.meshCount,
-    greedyQuads: () => meshMgr.totalQuads,
-    naiveFaces: () => naiveFaces,
+    chunksLoaded: () => world.chunks.size,
     fps: () => fps,
+    state: () => gameState.getState(),
+    recentEdits: () => gameState.recentEdits(),
   },
 };
 
 if (bootStatus) {
   bootStatus.textContent =
-    'Sprint 4 — greedy mesh + AO · L-break · R-place · 1/2/3 block';
+    'Sprint 5 — streaming world · WASD move · L-break · R-place';
 }
-console.log('[Minecraft Clone] Sprint 4 — greedy meshing + AO online');
+console.log('[Minecraft Clone] Sprint 5 — chunk streaming + GameStateAPI online');

@@ -6,14 +6,27 @@ import { BlockId } from './BlockRegistry';
  * uses {@link getBlock} so it can cull faces that border neighbouring chunks.
  */
 export class World {
-  readonly chunks = new Map<string, Chunk>();
+  readonly chunks = new Map<number, Chunk>();
 
-  private static key(cx: number, cz: number): string {
-    return `${cx},${cz}`;
+  // Numeric chunk key (no per-call string allocation — getBlock is called
+  // hundreds of thousands of times during meshing). Supports chunk coords in
+  // [-32768, 32767], i.e. ±524k blocks from origin.
+  private static key(cx: number, cz: number): number {
+    return (cx + 0x8000) * 0x10000 + (cz + 0x8000);
   }
 
+  // One-entry lookup cache: meshing/physics sample the same chunk many times in
+  // a row, so this skips most key computations and Map lookups.
+  private cacheKey = Number.NaN;
+  private cacheChunk: Chunk | undefined = undefined;
+
   getChunk(cx: number, cz: number): Chunk | undefined {
-    return this.chunks.get(World.key(cx, cz));
+    const key = World.key(cx, cz);
+    if (key === this.cacheKey) return this.cacheChunk;
+    const chunk = this.chunks.get(key);
+    this.cacheKey = key;
+    this.cacheChunk = chunk;
+    return chunk;
   }
 
   getOrCreateChunk(cx: number, cz: number): Chunk {
@@ -21,8 +34,14 @@ export class World {
     if (!chunk) {
       chunk = new Chunk(cx, cz);
       this.chunks.set(World.key(cx, cz), chunk);
+      this.cacheKey = Number.NaN; // invalidate (cached miss is now stale)
     }
     return chunk;
+  }
+
+  removeChunk(cx: number, cz: number): void {
+    this.chunks.delete(World.key(cx, cz));
+    this.cacheKey = Number.NaN;
   }
 
   getBlock(wx: number, wy: number, wz: number): number {

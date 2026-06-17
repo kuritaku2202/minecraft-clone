@@ -2,10 +2,12 @@ import * as THREE from 'three';
 import { World } from '../engine/World';
 import { Player } from './Player';
 import { Controls } from './Controls';
-import { ChunkMeshManager } from '../renderer/ChunkMeshManager';
 import { HUD } from '../ui/HUD';
 import { raycastVoxel, type VoxelHit } from '../engine/raycast';
 import { BlockId, isSolid, getBlockDef } from '../engine/BlockRegistry';
+
+/** Applies a block edit (write + re-mesh + notify); supplied by ChunkManager. */
+export type EditBlockFn = (x: number, y: number, z: number, id: BlockId) => void;
 
 const REACH = 5; // max interaction distance in blocks
 const BREAK_TIME = 0.35; // seconds to break a block (uniform for now)
@@ -30,7 +32,7 @@ export class Interaction {
     private readonly world: World,
     private readonly player: Player,
     private readonly controls: Controls,
-    private readonly meshMgr: ChunkMeshManager,
+    private readonly applyEdit: EditBlockFn,
     private readonly hud: HUD,
     scene: THREE.Scene,
     canvas: HTMLCanvasElement,
@@ -66,8 +68,7 @@ export class Interaction {
   }
 
   private editBlock(x: number, y: number, z: number, id: BlockId): void {
-    this.world.setBlock(x, y, z, id);
-    this.meshMgr.markBlockDirty(this.world, x, y, z);
+    this.applyEdit(x, y, z, id);
   }
 
   /** Place the held block against the targeted face. */
