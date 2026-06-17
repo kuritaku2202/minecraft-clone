@@ -32,7 +32,7 @@ function jitter(seed: number, amount: number): number {
   return (n - Math.floor(n) - 0.5) * 2 * amount;
 }
 
-function tilePixel(tile: number, px: number, py: number): RGB {
+export function tilePixel(tile: number, px: number, py: number): RGB {
   let r = 0;
   let g = 0;
   let b = 0;

@@ -7,3 +7,5 @@ dist-ssr
 .vite
 .playwright-mcp
 *-verify.png
+# Playwright MCP sprint verification screenshots (kept local, not committed)
+sprint*.png

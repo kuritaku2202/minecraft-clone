@@ -1,12 +1,11 @@
 /**
- * Minimal heads-up display built from DOM overlays: a centre crosshair, a block
- * break-progress bar, and a held-block label. Kept separate from the WebGL
- * canvas so it is crisp and cheap to update.
+ * Minimal heads-up display built from DOM overlays: a centre crosshair and a
+ * block break-progress bar. The held block is shown by the {@link Hotbar}. Kept
+ * separate from the WebGL canvas so it is crisp and cheap to update.
  */
 export class HUD {
   private readonly breakFill: HTMLElement;
   private readonly breakBar: HTMLElement;
-  private readonly heldLabel: HTMLElement;
 
   constructor(root: HTMLElement = document.body) {
     // Crosshair: two crossing white bars.
@@ -35,15 +34,7 @@ export class HUD {
       'width:0%;height:100%;background:#e8e8e8;';
     this.breakBar.appendChild(this.breakFill);
 
-    // Held-block label, bottom centre.
-    this.heldLabel = document.createElement('div');
-    this.heldLabel.id = 'held-label';
-    this.heldLabel.style.cssText =
-      'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);' +
-      'color:#fff;font:13px system-ui,sans-serif;text-shadow:1px 1px 2px #000;' +
-      'pointer-events:none;z-index:20;';
-
-    root.append(cross, this.breakBar, this.heldLabel);
+    root.append(cross, this.breakBar);
   }
 
   /** progress in [0,1]; 0 hides the bar. */
@@ -54,9 +45,5 @@ export class HUD {
     }
     this.breakBar.style.display = 'block';
     this.breakFill.style.width = `${Math.min(1, progress) * 100}%`;
-  }
-
-  setHeldBlock(name: string): void {
-    this.heldLabel.textContent = `Held: ${name}  ·  [1] Grass  [2] Dirt  [3] Stone`;
   }
 }
