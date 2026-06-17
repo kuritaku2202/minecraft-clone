@@ -1,25 +1,17 @@
 import * as THREE from 'three';
+import { Tile, TILE_COUNT } from './BlockRegistry';
 
 /**
  * Procedural tile textures packed into a Three.js DataArrayTexture (one tile per
  * array layer). A texture array lets greedy-merged quads tile a single tile
  * across an N×M run via REPEAT wrapping and a per-vertex layer index — which a
  * flat atlas cannot do without bleeding between tiles.
+ *
+ * Tile/layer order is defined by {@link Tile} in BlockRegistry (the single
+ * source of truth); this module renders one layer per entry in that order.
  */
 
 export const TILE_PX = 16;
-
-/** Layer index per tile (also used as the vertex layer attribute). */
-export const Tile = {
-  GrassTop: 0,
-  Dirt: 1,
-  Stone: 2,
-  GrassSide: 3,
-  Water: 4,
-  Sand: 5,
-} as const;
-
-const TILE_COUNT = 6;
 
 type RGB = [number, number, number];
 
@@ -30,6 +22,12 @@ function clamp8(v: number): number {
 function jitter(seed: number, amount: number): number {
   const n = Math.sin(seed * 12.9898) * 43758.5453;
   return (n - Math.floor(n) - 0.5) * 2 * amount;
+}
+
+/** Deterministic per-pixel hash in [0,1) — used for speckles / ore blobs. */
+function hash01(x: number, y: number): number {
+  const n = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return n - Math.floor(n);
 }
 
 export function tilePixel(tile: number, px: number, py: number): RGB {
@@ -84,6 +82,125 @@ export function tilePixel(tile: number, px: number, py: number): RGB {
       r = 218 + j;
       g = 205 + j;
       b = 150 + j;
+      break;
+    }
+    case Tile.Cobblestone: {
+      // Grey stones with darker mortar on a coarse 5px grid.
+      const j = jitter(px * 13 + py * 29, 20);
+      r = 120 + j;
+      g = 120 + j;
+      b = 124 + j;
+      if (px % 5 === 0 || py % 5 === 0 || hash01(px, py) > 0.85) {
+        r *= 0.62;
+        g *= 0.62;
+        b *= 0.62;
+      }
+      break;
+    }
+    case Tile.OakLogTop: {
+      // Concentric growth rings around the centre.
+      const dx = px - 7.5;
+      const dy = py - 7.5;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const ring = (Math.sin(dist * 2.1) + 1) * 0.5; // 0..1
+      r = 120 + ring * 40;
+      g = 86 + ring * 30;
+      b = 48 + ring * 18;
+      break;
+    }
+    case Tile.OakLogSide: {
+      // Vertical bark grooves.
+      const j = jitter(px * 7, 10);
+      const groove = Math.sin(px * 1.7) * 0.5 + 0.5; // vertical streaks
+      r = 92 + groove * 34 + j;
+      g = 64 + groove * 24 + j;
+      b = 38 + groove * 14 + j;
+      break;
+    }
+    case Tile.OakPlanks: {
+      // Horizontal planks, 4px tall, with offset vertical seams.
+      const j = jitter(px * 5 + py * 17, 10);
+      r = 170 + j;
+      g = 135 + j;
+      b = 82 + j;
+      const row = Math.floor(py / 4);
+      if (py % 4 === 0) {
+        r *= 0.7;
+        g *= 0.7;
+        b *= 0.7;
+      } else if ((px + row * 5) % 8 === 0) {
+        r *= 0.82;
+        g *= 0.82;
+        b *= 0.82;
+      }
+      break;
+    }
+    case Tile.OakLeaves: {
+      // Dense dark green with noisy holes for depth.
+      const j = jitter(px * 19 + py * 23, 26);
+      r = 48 + j;
+      g = 104 + j;
+      b = 42 + j;
+      if (hash01(px * 1.3, py * 1.7) > 0.8) {
+        r *= 0.62;
+        g *= 0.66;
+        b *= 0.62;
+      }
+      break;
+    }
+    case Tile.Bedrock: {
+      // Very dark, high-contrast blocky noise.
+      const v = 40 + hash01(px, py) * 70;
+      r = v;
+      g = v;
+      b = v + 4;
+      break;
+    }
+    case Tile.Gravel: {
+      // Grey-brown speckle with darker pebbles.
+      const j = jitter(px * 11 + py * 19, 22);
+      r = 124 + j;
+      g = 116 + j;
+      b = 108 + j;
+      if (hash01(px * 2.1, py * 1.9) > 0.7) {
+        r *= 0.7;
+        g *= 0.7;
+        b *= 0.7;
+      }
+      break;
+    }
+    case Tile.CoalOre: {
+      // Stone base with clustered near-black specks.
+      const j = jitter(px * 13 + py * 29, 14);
+      r = 128 + j;
+      g = 128 + j;
+      b = 130 + j;
+      if (hash01(px * 1.7, py * 2.3) > 0.78) {
+        r = 30;
+        g = 30;
+        b = 32;
+      }
+      break;
+    }
+    case Tile.IronOre: {
+      // Stone base with tan/orange ore specks.
+      const j = jitter(px * 13 + py * 29, 14);
+      r = 128 + j;
+      g = 128 + j;
+      b = 130 + j;
+      if (hash01(px * 2.3, py * 1.7) > 0.78) {
+        r = 206;
+        g = 162;
+        b = 120;
+      }
+      break;
+    }
+    case Tile.Snow: {
+      // Near-white with a faint cool tint and gentle jitter.
+      const j = jitter(px * 7 + py * 13, 8);
+      r = 236 + j;
+      g = 240 + j;
+      b = 248 + j;
       break;
     }
   }

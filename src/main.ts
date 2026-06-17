@@ -107,21 +107,34 @@ const interaction = new Interaction(
   canvas,
 );
 
-// ----- Hotbar + creative inventory (Sprint 9) -----
-// Every placeable/known block; the inventory lists them, the hotbar holds 9.
+// ----- Hotbar + creative inventory (Sprint 9 / 10) -----
+// Every placeable block; the inventory lists them all, the hotbar holds 9.
 const AVAILABLE_BLOCKS = [
   BlockId.Grass,
   BlockId.Dirt,
   BlockId.Stone,
+  BlockId.Cobblestone,
+  BlockId.OakLog,
+  BlockId.OakPlanks,
+  BlockId.OakLeaves,
   BlockId.Sand,
+  BlockId.Gravel,
+  BlockId.Snow,
+  BlockId.CoalOre,
+  BlockId.IronOre,
+  BlockId.Bedrock,
   BlockId.Water,
 ];
 const hotbar = new Hotbar([
   BlockId.Grass,
   BlockId.Dirt,
   BlockId.Stone,
+  BlockId.Cobblestone,
+  BlockId.OakLog,
+  BlockId.OakPlanks,
+  BlockId.OakLeaves,
   BlockId.Sand,
-  BlockId.Water,
+  BlockId.Snow,
 ]);
 const inventory = new Inventory(AVAILABLE_BLOCKS);
 
@@ -291,8 +304,8 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 9 — hotbar + inventory  ·  [1–9]/wheel select  ·  [E] inventory (seed ${seed})`;
+  bootStatus.textContent = `Sprint 10 — 15 block types + trees/ores  ·  [1–9]/wheel  ·  [E] inventory (seed ${seed})`;
 }
 console.log(
-  `[Minecraft Clone] Sprint 9 — hotbar + creative inventory online (seed ${seed})`,
+  `[Minecraft Clone] Sprint 10 — multiple block types (trees, ores, snow, bedrock) online (seed ${seed})`,
 );
