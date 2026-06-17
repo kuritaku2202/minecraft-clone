@@ -64,13 +64,13 @@ export const BLOCKS: Record<BlockId, BlockDef> = {
     transparent: false,
     tiles: { top: Tile.Stone, bottom: Tile.Stone, side: Tile.Stone },
   },
-  // Water renders as a (currently opaque) blue volume but does not collide,
-  // so the player can move into it. Real transparency + flow come later.
+  // Water is transparent (rendered in a separate semi-transparent pass) and does
+  // not collide, so the player can move into it and see terrain underwater.
   [BlockId.Water]: {
     id: BlockId.Water,
     name: 'water',
     solid: false,
-    transparent: false,
+    transparent: true,
     tiles: { top: Tile.Water, bottom: Tile.Water, side: Tile.Water },
   },
   [BlockId.Sand]: {

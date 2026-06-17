@@ -3,7 +3,7 @@ import { World } from './engine/World';
 import { CHUNK_SIZE } from './engine/Chunk';
 import { ChunkManager } from './engine/ChunkManager';
 import { buildTileArrayTexture } from './engine/textures';
-import { createChunkMaterial } from './renderer/ChunkRenderer';
+import { createChunkMaterial, createWaterMaterial } from './renderer/ChunkRenderer';
 import { ChunkMeshManager } from './renderer/ChunkMeshManager';
 import { Player } from './player/Player';
 import { Controls } from './player/Controls';
@@ -49,7 +49,8 @@ const terrain = new TerrainGenerator(seed);
 const world = new World();
 const atlas = buildTileArrayTexture();
 const chunkMaterial = createChunkMaterial(atlas);
-const meshMgr = new ChunkMeshManager(chunkMaterial);
+const waterMaterial = createWaterMaterial(atlas);
+const meshMgr = new ChunkMeshManager(chunkMaterial, waterMaterial);
 scene.add(meshMgr.group);
 const chunkManager = new ChunkManager(world, meshMgr, (chunk) =>
   terrain.generate(chunk),
@@ -58,8 +59,11 @@ const chunkManager = new ChunkManager(world, meshMgr, (chunk) =>
 // Sky dome + day/night cycle. Matches fog distance to the render radius so the
 // streaming boundary fades into the horizon instead of popping in.
 const sky = new Sky(scene);
-chunkMaterial.uniforms.uFogFar.value = 118;
-chunkMaterial.uniforms.uFogNear.value = 72;
+const terrainMaterials = [chunkMaterial, waterMaterial];
+for (const m of terrainMaterials) {
+  m.uniforms.uFogFar.value = 118;
+  m.uniforms.uFogNear.value = 72;
+}
 
 // Find a dry-land spawn near the origin (spiral out until above sea level).
 function findSpawn(): THREE.Vector3 {
@@ -131,10 +135,12 @@ function animate() {
   camera.rotation.x = controls.pitch;
   camera.rotation.y = controls.yaw;
 
-  // Day/night cycle drives terrain brightness + fog colour.
+  // Day/night cycle drives terrain brightness + fog colour (opaque + water).
   sky.update(dt, camera.position);
-  chunkMaterial.uniforms.uDayLight.value = sky.daylight;
-  chunkMaterial.uniforms.uFogColor.value.copy(sky.fogColor);
+  for (const m of terrainMaterials) {
+    m.uniforms.uDayLight.value = sky.daylight;
+    m.uniforms.uFogColor.value.copy(sky.fogColor);
+  }
 
   interaction.update(dt);
 
@@ -201,6 +207,8 @@ animate();
     held: () => interaction.heldBlock,
     block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
     meshCount: () => meshMgr.meshCount,
+    totalQuads: () => meshMgr.totalQuads,
+    waterQuads: () => meshMgr.waterQuads,
     chunksLoaded: () => world.chunks.size,
     fps: () => fps,
     state: () => gameState.getState(),
@@ -209,6 +217,8 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 7 — sky + day/night + fog (seed ${seed})`;
+  bootStatus.textContent = `Sprint 8 — bit-packed meshing + workers + water (seed ${seed})`;
 }
-console.log(`[Minecraft Clone] Sprint 7 — sky + day/night + fog online (seed ${seed})`);
+console.log(
+  `[Minecraft Clone] Sprint 8 — bit-packed meshing + workers + water online (seed ${seed})`,
+);
