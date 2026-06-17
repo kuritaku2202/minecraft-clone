@@ -1,7 +1,10 @@
-import { World, generateFlatChunk } from './World';
-import { CHUNK_SIZE } from './Chunk';
+import { World } from './World';
+import { Chunk, CHUNK_SIZE } from './Chunk';
 import { ChunkMeshManager } from '../renderer/ChunkMeshManager';
 import { BlockId } from './BlockRegistry';
+
+/** Fills a freshly created chunk with block data (terrain generation). */
+export type ChunkGenerator = (chunk: Chunk) => void;
 
 export type BlockEditListener = (
   x: number,
@@ -40,8 +43,13 @@ export class ChunkManager {
   constructor(
     private readonly world: World,
     private readonly meshMgr: ChunkMeshManager,
+    private readonly generate: ChunkGenerator,
   ) {
     this.offsets = ChunkManager.computeOffsets(this.renderDistance + 1);
+  }
+
+  private generateChunk(cx: number, cz: number): void {
+    this.generate(this.world.getOrCreateChunk(cx, cz));
   }
 
   private static computeOffsets(r: number): Offset[] {
@@ -85,7 +93,7 @@ export class ChunkManager {
         const cx = pcx + dx;
         const cz = pcz + dz;
         if (!this.world.getChunk(cx, cz)) {
-          generateFlatChunk(this.world.getOrCreateChunk(cx, cz));
+          this.generateChunk(cx, cz);
         }
       }
     }
@@ -109,7 +117,7 @@ export class ChunkManager {
       const cx = pcx + o.dx;
       const cz = pcz + o.dz;
       if (!this.world.getChunk(cx, cz)) {
-        generateFlatChunk(this.world.getOrCreateChunk(cx, cz));
+        this.generateChunk(cx, cz);
         generated++;
       }
     }

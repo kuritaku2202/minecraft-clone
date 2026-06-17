@@ -8,6 +8,8 @@ export enum BlockId {
   Grass = 1,
   Dirt = 2,
   Stone = 3,
+  Water = 4,
+  Sand = 5,
 }
 
 /** Tile indices into the texture atlas (see textures.ts). */
@@ -16,6 +18,8 @@ export const Tile = {
   Dirt: 1,
   Stone: 2,
   GrassSide: 3,
+  Water: 4,
+  Sand: 5,
 } as const;
 
 export type FaceKey = 'top' | 'bottom' | 'side';
@@ -59,6 +63,22 @@ export const BLOCKS: Record<BlockId, BlockDef> = {
     solid: true,
     transparent: false,
     tiles: { top: Tile.Stone, bottom: Tile.Stone, side: Tile.Stone },
+  },
+  // Water renders as a (currently opaque) blue volume but does not collide,
+  // so the player can move into it. Real transparency + flow come later.
+  [BlockId.Water]: {
+    id: BlockId.Water,
+    name: 'water',
+    solid: false,
+    transparent: false,
+    tiles: { top: Tile.Water, bottom: Tile.Water, side: Tile.Water },
+  },
+  [BlockId.Sand]: {
+    id: BlockId.Sand,
+    name: 'sand',
+    solid: true,
+    transparent: false,
+    tiles: { top: Tile.Sand, bottom: Tile.Sand, side: Tile.Sand },
   },
 };
 

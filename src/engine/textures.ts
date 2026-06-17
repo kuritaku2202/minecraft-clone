@@ -15,9 +15,11 @@ export const Tile = {
   Dirt: 1,
   Stone: 2,
   GrassSide: 3,
+  Water: 4,
+  Sand: 5,
 } as const;
 
-const TILE_COUNT = 4;
+const TILE_COUNT = 6;
 
 type RGB = [number, number, number];
 
@@ -68,6 +70,20 @@ function tilePixel(tile: number, px: number, py: number): RGB {
         g = 88 + j;
         b = 58 + j;
       }
+      break;
+    }
+    case Tile.Water: {
+      const j = jitter(px * 23 + py * 5, 10);
+      r = 40 + j;
+      g = 90 + j;
+      b = 190 + j;
+      break;
+    }
+    case Tile.Sand: {
+      const j = jitter(px * 29 + py * 3, 12);
+      r = 218 + j;
+      g = 205 + j;
+      b = 150 + j;
       break;
     }
   }

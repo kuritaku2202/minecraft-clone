@@ -10,10 +10,11 @@ import { Controls } from './player/Controls';
 import { Interaction } from './player/Interaction';
 import { HUD } from './ui/HUD';
 import { GameStateAPI } from './debug/GameStateAPI';
+import { TerrainGenerator, SEA_LEVEL } from './terrain/TerrainGenerator';
 
 /**
- * Sprint 5: an effectively infinite flat world that streams chunks in/out
- * around the player, plus a GameStateAPI monitoring surface.
+ * Sprint 6: seeded multi-noise terrain (hills, plains, oceans, caves) streamed
+ * around the player, with the GameStateAPI monitoring surface.
  */
 
 // Stylised colours: emit authored values directly, no sRGB/linear conversion.
@@ -38,16 +39,42 @@ const camera = new THREE.PerspectiveCamera(
 );
 camera.rotation.order = 'YXZ';
 
-// ----- World + streaming -----
+// ----- World + terrain + streaming -----
+const params = new URLSearchParams(location.search);
+const seed = params.has('seed')
+  ? Number(params.get('seed'))
+  : (Math.random() * 0xffffffff) >>> 0;
+const terrain = new TerrainGenerator(seed);
+
 const world = new World();
 const atlas = buildTileArrayTexture();
 const chunkMaterial = createChunkMaterial(atlas);
 const meshMgr = new ChunkMeshManager(chunkMaterial);
 scene.add(meshMgr.group);
-const chunkManager = new ChunkManager(world, meshMgr);
+const chunkManager = new ChunkManager(world, meshMgr, (chunk) =>
+  terrain.generate(chunk),
+);
+
+// Find a dry-land spawn near the origin (spiral out until above sea level).
+function findSpawn(): THREE.Vector3 {
+  for (let r = 0; r < 64; r++) {
+    for (let dx = -r; dx <= r; dx++) {
+      for (let dz = -r; dz <= r; dz++) {
+        if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+        const x = dx * 8;
+        const z = dz * 8;
+        const h = terrain.heightAt(x, z);
+        if (h >= SEA_LEVEL + 1) {
+          return new THREE.Vector3(x + 0.5, h + 2, z + 0.5);
+        }
+      }
+    }
+  }
+  return new THREE.Vector3(0.5, SEA_LEVEL + 4, 0.5);
+}
 
 // ----- Player, controls, HUD, monitoring -----
-const spawn = new THREE.Vector3(8, 80, 8);
+const spawn = findSpawn();
 const player = new Player(spawn);
 const controls = new Controls(canvas);
 const hud = new HUD();
@@ -141,9 +168,13 @@ animate();
   meshMgr,
   chunkManager,
   gameState,
+  terrain,
+  seed,
   getFrames: () => frames,
   debug: {
     pos: () => player.position.toArray(),
+    seed: () => seed,
+    heightAt: (x: number, z: number) => terrain.heightAt(x, z),
     vel: () => player.velocity.toArray(),
     onGround: () => player.onGround,
     yaw: () => controls.yaw,
@@ -161,7 +192,6 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent =
-    'Sprint 5 — streaming world · WASD move · L-break · R-place';
+  bootStatus.textContent = `Sprint 6 — noise terrain (seed ${seed}) · WASD · L-break · R-place`;
 }
-console.log('[Minecraft Clone] Sprint 5 — chunk streaming + GameStateAPI online');
+console.log(`[Minecraft Clone] Sprint 6 — noise terrain online (seed ${seed})`);
