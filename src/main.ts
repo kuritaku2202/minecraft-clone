@@ -187,12 +187,20 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ----- Mobs (Sprint 11): wandering pigs spawned on the surface -----
-const mobManager = new MobManager(world, scene);
+// ----- Mobs (Sprint 11/12): animals + monsters with AI and combat -----
+const PLAYER_ATTACK_DAMAGE = 4;
+const ATTACK_REACH = 5;
+const mobManager = new MobManager(world, scene, (x, y, z, id) =>
+  chunkManager.editBlock(x, y, z, id),
+);
+interaction.setAttackMob((ox, oy, oz, dx, dy, dz) =>
+  mobManager.attackAlongRay(ox, oy, oz, dx, dy, dz, ATTACK_REACH, PLAYER_ATTACK_DAMAGE),
+);
 
 const clock = new THREE.Clock();
 const eye = new THREE.Vector3();
 let frames = 0;
+let deathTimer = 0;
 
 // Rolling FPS estimate over ~0.5s windows.
 let fps = 0;
@@ -224,7 +232,27 @@ function animate() {
 
   interaction.update(dt);
   hotbar.update(dt);
-  mobManager.update(dt, player.position.x, player.position.z, sky.daylight);
+  mobManager.update(dt, player.position, sky.daylight, (amount) =>
+    player.hurt(amount),
+  );
+
+  // Health HUD + death/respawn.
+  if (player.justHurt) {
+    hud.flashDamage();
+    player.justHurt = false;
+  }
+  hud.setHealth(player.health);
+  if (player.dead) {
+    hud.setDead(true);
+    deathTimer += dt;
+    if (deathTimer > 1.5) {
+      player.respawn();
+      hud.setDead(false);
+      deathTimer = 0;
+    }
+  } else {
+    deathTimer = 0;
+  }
 
   renderer.render(scene, camera);
   frames++;
@@ -299,16 +327,24 @@ animate();
     closeInventory: () => closeInventory(),
     pickBlock: (b: number) => hotbar.setSlot(hotbar.selected, b as BlockId),
     mobCount: () => mobManager.count,
+    mobKinds: () => mobManager.countByKind(),
     mobs: () =>
       mobManager.mobs.map((m) => ({
+        kind: m.kind,
         pos: m.position.toArray(),
         yaw: m.yaw,
         moving: m.moving,
         onGround: m.onGround,
+        health: m.health,
+        chasing: m.chasing,
       })),
-    spawnMob: (x: number, y: number, z: number) => mobManager.spawnAt(x, y, z),
-    spawnMobNear: () =>
-      !!mobManager.spawnNear(player.position.x, player.position.z),
+    spawnMob: (kind: string, x: number, y: number, z: number) =>
+      mobManager.spawnAt(x, y, z, kind as never),
+    spawnKindNear: (kind: string) =>
+      !!mobManager.spawnKindNear(kind as never, player.position.x, player.position.z),
+    health: () => player.health,
+    dead: () => player.dead,
+    hurtPlayer: (n: number) => player.hurt(n),
     block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
     meshCount: () => meshMgr.meshCount,
     totalQuads: () => meshMgr.totalQuads,
@@ -321,8 +357,8 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 11 — wandering mobs  ·  [1–9]/wheel  ·  [E] inventory (seed ${seed})`;
+  bootStatus.textContent = `Sprint 12 — 10 mob types (animals + monsters) · combat · [E] inventory (seed ${seed})`;
 }
 console.log(
-  `[Minecraft Clone] Sprint 11 — mob AI (spawn, wander, gravity, ledge/step) online (seed ${seed})`,
+  `[Minecraft Clone] Sprint 12 — 10 mob types: pig/cow/sheep/chicken + zombie/skeleton/creeper/spider/slime/enderman (seed ${seed})`,
 );

@@ -24,13 +24,42 @@ export interface MoveInput {
  * Player state + movement integration. `position` is the feet centre: the AABB
  * spans [x±w/2] horizontally and [y, y+height] vertically.
  */
+export const PLAYER_MAX_HEALTH = 20;
+const HURT_INVULN = 0.5; // seconds of i-frames after a hit
+
 export class Player {
   readonly position = new THREE.Vector3();
   readonly velocity = new THREE.Vector3();
   onGround = false;
 
+  readonly spawn = new THREE.Vector3();
+  health = PLAYER_MAX_HEALTH;
+  dead = false;
+  hurtCooldown = 0;
+  /** Brief flag set the frame damage is taken (drives the HUD red flash). */
+  justHurt = false;
+
   constructor(spawn: THREE.Vector3) {
     this.position.copy(spawn);
+    this.spawn.copy(spawn);
+  }
+
+  /** Apply damage, respecting i-frames; flags death at zero health. */
+  hurt(amount: number): void {
+    if (this.dead || this.hurtCooldown > 0 || amount <= 0) return;
+    this.health = Math.max(0, this.health - amount);
+    this.hurtCooldown = HURT_INVULN;
+    this.justHurt = true;
+    if (this.health === 0) this.dead = true;
+  }
+
+  /** Reset to the spawn point with full health. */
+  respawn(): void {
+    this.position.copy(this.spawn);
+    this.velocity.set(0, 0, 0);
+    this.health = PLAYER_MAX_HEALTH;
+    this.dead = false;
+    this.hurtCooldown = 0;
   }
 
   aabb(): AABB {
@@ -54,6 +83,8 @@ export class Player {
   }
 
   update(world: World, input: MoveInput, dt: number): void {
+    if (this.hurtCooldown > 0) this.hurtCooldown -= dt;
+
     // Horizontal wish direction in camera space.
     const sin = Math.sin(input.yaw);
     const cos = Math.cos(input.yaw);

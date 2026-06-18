@@ -1,11 +1,17 @@
 /**
- * Minimal heads-up display built from DOM overlays: a centre crosshair and a
- * block break-progress bar. The held block is shown by the {@link Hotbar}. Kept
- * separate from the WebGL canvas so it is crisp and cheap to update.
+ * Minimal heads-up display built from DOM overlays: a centre crosshair, a block
+ * break-progress bar, a heart health bar, a damage flash and a death overlay.
+ * The held block is shown by the {@link Hotbar}. Kept separate from the WebGL
+ * canvas so it is crisp and cheap to update.
  */
+const HEART_COUNT = 10; // each heart = 2 HP (20 max)
+
 export class HUD {
   private readonly breakFill: HTMLElement;
   private readonly breakBar: HTMLElement;
+  private readonly hearts: HTMLElement[] = [];
+  private readonly damageFlash: HTMLElement;
+  private readonly deathOverlay: HTMLElement;
 
   constructor(root: HTMLElement = document.body) {
     // Crosshair: two crossing white bars.
@@ -34,7 +40,70 @@ export class HUD {
       'width:0%;height:100%;background:#e8e8e8;';
     this.breakBar.appendChild(this.breakFill);
 
-    root.append(cross, this.breakBar);
+    // Heart health bar, centred just above the hotbar.
+    const heartRow = document.createElement('div');
+    heartRow.id = 'hearts';
+    heartRow.style.cssText =
+      'position:fixed;left:50%;bottom:70px;transform:translateX(-50%);' +
+      'display:flex;gap:2px;pointer-events:none;z-index:25;' +
+      'font:18px system-ui,sans-serif;text-shadow:0 1px 2px #000;';
+    for (let i = 0; i < HEART_COUNT; i++) {
+      const h = document.createElement('span');
+      h.textContent = '♥';
+      this.hearts.push(h);
+      heartRow.appendChild(h);
+    }
+
+    // Full-screen red damage flash (pulsed on hit).
+    this.damageFlash = document.createElement('div');
+    this.damageFlash.style.cssText =
+      'position:fixed;inset:0;background:rgba(200,0,0,0.35);opacity:0;' +
+      'transition:opacity 0.35s;pointer-events:none;z-index:30;';
+
+    // Death overlay.
+    this.deathOverlay = document.createElement('div');
+    this.deathOverlay.style.cssText =
+      'position:fixed;inset:0;display:none;align-items:center;justify-content:center;' +
+      'background:rgba(80,0,0,0.55);color:#fff;font:600 34px system-ui,sans-serif;' +
+      'text-shadow:0 2px 6px #000;pointer-events:none;z-index:45;';
+    this.deathOverlay.textContent = 'You died — respawning…';
+
+    root.append(cross, this.breakBar, heartRow, this.damageFlash, this.deathOverlay);
+    this.setHealth(HEART_COUNT * 2);
+  }
+
+  /** Update the heart row from current health (0..20). */
+  setHealth(health: number): void {
+    const full = Math.floor(health / 2);
+    const half = health % 2 === 1;
+    for (let i = 0; i < HEART_COUNT; i++) {
+      const h = this.hearts[i];
+      if (i < full) {
+        h.textContent = '♥';
+        h.style.color = '#ff3b3b';
+        h.style.opacity = '1';
+      } else if (i === full && half) {
+        h.textContent = '♥';
+        h.style.color = '#ff9d3b'; // half heart → orange
+        h.style.opacity = '1';
+      } else {
+        h.textContent = '♡';
+        h.style.color = '#3a3a3a';
+        h.style.opacity = '0.85';
+      }
+    }
+  }
+
+  /** Briefly pulse the red damage vignette. */
+  flashDamage(): void {
+    this.damageFlash.style.opacity = '1';
+    setTimeout(() => {
+      this.damageFlash.style.opacity = '0';
+    }, 60);
+  }
+
+  setDead(dead: boolean): void {
+    this.deathOverlay.style.display = dead ? 'flex' : 'none';
   }
 
   /** progress in [0,1]; 0 hides the bar. */
