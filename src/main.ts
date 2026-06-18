@@ -15,6 +15,7 @@ import { GameStateAPI } from './debug/GameStateAPI';
 import { TerrainGenerator, SEA_LEVEL } from './terrain/TerrainGenerator';
 import { Sky } from './renderer/Sky';
 import { BlockId } from './engine/BlockRegistry';
+import { MobManager } from './entities/MobManager';
 
 /**
  * Sprint 6: seeded multi-noise terrain (hills, plains, oceans, caves) streamed
@@ -186,6 +187,9 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// ----- Mobs (Sprint 11): wandering pigs spawned on the surface -----
+const mobManager = new MobManager(world, scene);
+
 const clock = new THREE.Clock();
 const eye = new THREE.Vector3();
 let frames = 0;
@@ -220,6 +224,7 @@ function animate() {
 
   interaction.update(dt);
   hotbar.update(dt);
+  mobManager.update(dt, player.position.x, player.position.z, sky.daylight);
 
   renderer.render(scene, camera);
   frames++;
@@ -267,6 +272,7 @@ animate();
   sky,
   hotbar,
   inventory,
+  mobManager,
   getFrames: () => frames,
   debug: {
     pos: () => player.position.toArray(),
@@ -292,6 +298,17 @@ animate();
     openInventory: () => openInventory(),
     closeInventory: () => closeInventory(),
     pickBlock: (b: number) => hotbar.setSlot(hotbar.selected, b as BlockId),
+    mobCount: () => mobManager.count,
+    mobs: () =>
+      mobManager.mobs.map((m) => ({
+        pos: m.position.toArray(),
+        yaw: m.yaw,
+        moving: m.moving,
+        onGround: m.onGround,
+      })),
+    spawnMob: (x: number, y: number, z: number) => mobManager.spawnAt(x, y, z),
+    spawnMobNear: () =>
+      !!mobManager.spawnNear(player.position.x, player.position.z),
     block: (x: number, y: number, z: number) => world.getBlock(x, y, z),
     meshCount: () => meshMgr.meshCount,
     totalQuads: () => meshMgr.totalQuads,
@@ -304,8 +321,8 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 10 — 15 block types + trees/ores  ·  [1–9]/wheel  ·  [E] inventory (seed ${seed})`;
+  bootStatus.textContent = `Sprint 11 — wandering mobs  ·  [1–9]/wheel  ·  [E] inventory (seed ${seed})`;
 }
 console.log(
-  `[Minecraft Clone] Sprint 10 — multiple block types (trees, ores, snow, bedrock) online (seed ${seed})`,
+  `[Minecraft Clone] Sprint 11 — mob AI (spawn, wander, gravity, ledge/step) online (seed ${seed})`,
 );
