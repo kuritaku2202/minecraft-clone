@@ -9,6 +9,12 @@ import { BlockId, isSolid } from '../engine/BlockRegistry';
 /** Applies a block edit (write + re-mesh + notify); supplied by ChunkManager. */
 export type EditBlockFn = (x: number, y: number, z: number, id: BlockId) => void;
 
+/** Melee attack along the look ray; returns true if a mob was hit. */
+export type AttackMobFn = (
+  ox: number, oy: number, oz: number,
+  dx: number, dy: number, dz: number,
+) => boolean;
+
 const REACH = 5; // max interaction distance in blocks
 const BREAK_TIME = 0.35; // seconds to break a block (uniform for now)
 
@@ -29,6 +35,10 @@ export class Interaction {
 
   private readonly highlight: THREE.LineSegments;
   private readonly scratchEye = new THREE.Vector3();
+  // Latest look ray (updated each frame) so the click handler can attack mobs.
+  private readonly lookEye = new THREE.Vector3();
+  private readonly lookDir = new THREE.Vector3(0, 0, -1);
+  private attackMob: AttackMobFn | null = null;
 
   constructor(
     private readonly world: World,
@@ -48,8 +58,13 @@ export class Interaction {
 
     canvas.addEventListener('mousedown', (e) => {
       if (this.blocked) return;
-      if (e.button === 0) this.breaking = true;
-      else if (e.button === 2) this.place();
+      if (e.button === 0) {
+        // A left click attacks a mob in the crosshair, else starts breaking.
+        if (this.tryAttackMob()) return;
+        this.breaking = true;
+      } else if (e.button === 2) {
+        this.place();
+      }
     });
     window.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.cancelBreak();
@@ -59,6 +74,19 @@ export class Interaction {
 
   setHeld(id: BlockId): void {
     this.heldBlock = id;
+  }
+
+  /** Supply the mob melee hook (wired in main.ts). */
+  setAttackMob(fn: AttackMobFn): void {
+    this.attackMob = fn;
+  }
+
+  private tryAttackMob(): boolean {
+    if (!this.attackMob) return false;
+    return this.attackMob(
+      this.lookEye.x, this.lookEye.y, this.lookEye.z,
+      this.lookDir.x, this.lookDir.y, this.lookDir.z,
+    );
   }
 
   private editBlock(x: number, y: number, z: number, id: BlockId): void {
@@ -123,6 +151,10 @@ export class Interaction {
     const dirX = -Math.sin(yaw) * cp;
     const dirY = Math.sin(pitch);
     const dirZ = -Math.cos(yaw) * cp;
+
+    // Cache the look ray for the click handler's mob attack.
+    this.lookEye.copy(eye);
+    this.lookDir.set(dirX, dirY, dirZ);
 
     const solid = (x: number, y: number, z: number) =>
       isSolid(this.world.getBlock(x, y, z));
