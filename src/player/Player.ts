@@ -38,16 +38,20 @@ export class Player {
   hurtCooldown = 0;
   /** Brief flag set the frame damage is taken (drives the HUD red flash). */
   justHurt = false;
+  /** Armor points from equipped gear (each ≈ 4% damage reduction). */
+  armorPoints = 0;
 
   constructor(spawn: THREE.Vector3) {
     this.position.copy(spawn);
     this.spawn.copy(spawn);
   }
 
-  /** Apply damage, respecting i-frames; flags death at zero health. */
+  /** Apply damage (reduced by armor), respecting i-frames; flags death at 0. */
   hurt(amount: number): void {
     if (this.dead || this.hurtCooldown > 0 || amount <= 0) return;
-    this.health = Math.max(0, this.health - amount);
+    const reduction = Math.min(0.8, this.armorPoints * 0.04);
+    const dealt = Math.max(1, Math.round(amount * (1 - reduction)));
+    this.health = Math.max(0, this.health - dealt);
     this.hurtCooldown = HURT_INVULN;
     this.justHurt = true;
     if (this.health === 0) this.dead = true;

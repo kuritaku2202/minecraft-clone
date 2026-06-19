@@ -11,6 +11,7 @@ import {
   MobDef,
 } from './MobType';
 import { MobRenderer } from '../renderer/MobRenderer';
+import { mobDrops } from '../items/drops';
 
 /**
  * Spawns mobs around the player and manages their lifecycle. Animals spawn on
@@ -47,6 +48,7 @@ export class MobManager {
     private readonly world: World,
     scene: THREE.Scene,
     private readonly editBlock: EditBlockFn,
+    private readonly addItem: (item: number, count: number) => void = () => {},
   ) {
     this.renderer = new MobRenderer(scene);
   }
@@ -191,6 +193,12 @@ export class MobManager {
     const kz = best.position.z - oz;
     const len = Math.hypot(kx, kz) || 1;
     best.hurt(damage, (kx / len) * 6, (kz / len) * 6);
+    // Killing a mob drops its items into the inventory.
+    if (best.dead) {
+      for (const d of mobDrops(best.kind)) {
+        if (d.count > 0) this.addItem(d.item, d.count);
+      }
+    }
     return true;
   }
 

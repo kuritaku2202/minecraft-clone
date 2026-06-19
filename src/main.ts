@@ -10,12 +10,15 @@ import { Controls } from './player/Controls';
 import { Interaction } from './player/Interaction';
 import { HUD } from './ui/HUD';
 import { Hotbar } from './ui/Hotbar';
-import { Inventory } from './ui/Inventory';
+import { InventoryScreen } from './ui/InventoryScreen';
 import { GameStateAPI } from './debug/GameStateAPI';
 import { TerrainGenerator, SEA_LEVEL } from './terrain/TerrainGenerator';
 import { Sky } from './renderer/Sky';
 import { BlockId } from './engine/BlockRegistry';
 import { MobManager } from './entities/MobManager';
+import { Inventory } from './items/Inventory';
+import { ItemId, blockItem, toolOf, itemName } from './items/items';
+import { RECIPES } from './items/recipes';
 
 /**
  * Sprint 6: seeded multi-noise terrain (hills, plains, oceans, caves) streamed
@@ -98,6 +101,19 @@ const gameState = new GameStateAPI();
 chunkManager.preload(spawn.x, spawn.z, 2);
 chunkManager.onBlockEdit((x, y, z, id) => gameState.recordBlockEdit(x, y, z, id));
 
+// ----- Inventory + crafting (Sprint 13) -----
+const inventory = new Inventory();
+// Starter kit so the crafting tree (planks → table → tools → bed → armor) is
+// immediately reachable; the rest is gathered by mining and hunting.
+inventory.add(blockItem(BlockId.OakLog), 16);
+inventory.add(blockItem(BlockId.Cobblestone), 16);
+inventory.add(ItemId.Leather, 8);
+inventory.add(blockItem(BlockId.Wool), 6);
+inventory.add(ItemId.Coal, 4);
+
+const hotbar = new Hotbar(inventory);
+const inventoryScreen = new InventoryScreen(inventory);
+
 const interaction = new Interaction(
   world,
   player,
@@ -106,67 +122,30 @@ const interaction = new Interaction(
   hud,
   scene,
   canvas,
+  inventory,
+  () => openScreen(true),
 );
 
-// ----- Hotbar + creative inventory (Sprint 9 / 10) -----
-// Every placeable block; the inventory lists them all, the hotbar holds 9.
-const AVAILABLE_BLOCKS = [
-  BlockId.Grass,
-  BlockId.Dirt,
-  BlockId.Stone,
-  BlockId.Cobblestone,
-  BlockId.OakLog,
-  BlockId.OakPlanks,
-  BlockId.OakLeaves,
-  BlockId.Sand,
-  BlockId.Gravel,
-  BlockId.Snow,
-  BlockId.CoalOre,
-  BlockId.IronOre,
-  BlockId.Bedrock,
-  BlockId.Water,
-];
-const hotbar = new Hotbar([
-  BlockId.Grass,
-  BlockId.Dirt,
-  BlockId.Stone,
-  BlockId.Cobblestone,
-  BlockId.OakLog,
-  BlockId.OakPlanks,
-  BlockId.OakLeaves,
-  BlockId.Sand,
-  BlockId.Snow,
-]);
-const inventory = new Inventory(AVAILABLE_BLOCKS);
-
-// The hotbar's selected slot is the single source of truth for the held block.
-hotbar.setOnChange((block) => interaction.setHeld(block));
-interaction.setHeld(hotbar.selectedBlock());
-
-// Picking a block in the inventory drops it into the selected hotbar slot.
-inventory.setOnPick((block) => hotbar.setSlot(hotbar.selected, block));
-
-function openInventory(): void {
-  if (inventory.isOpen) return;
-  inventory.open();
+// Open/close the inventory or crafting-table screen; manage pointer lock + the
+// interaction freeze together.
+function openScreen(table: boolean): void {
+  if (inventoryScreen.isOpen) return;
+  if (table) inventoryScreen.open3x3();
+  else inventoryScreen.open2x2();
   interaction.blocked = true;
   if (document.pointerLockElement) document.exitPointerLock();
 }
-function closeInventory(): void {
-  if (!inventory.isOpen) return;
-  inventory.close();
-}
-// Re-enable interaction whenever the inventory closes (button, backdrop, or E).
-inventory.setOnClose(() => {
+inventoryScreen.setOnClose(() => {
   interaction.blocked = false;
 });
 
 window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') {
     e.preventDefault();
-    inventory.isOpen ? closeInventory() : openInventory();
+    if (inventoryScreen.isOpen) inventoryScreen.close();
+    else openScreen(false);
   } else if (e.code === 'Escape') {
-    closeInventory();
+    inventoryScreen.close();
   } else if (e.code.startsWith('Digit')) {
     const n = Number(e.code.slice(5));
     if (n >= 1 && n <= 9) hotbar.select(n - 1);
@@ -175,7 +154,7 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener(
   'wheel',
   (e) => {
-    if (inventory.isOpen) return;
+    if (inventoryScreen.isOpen) return;
     hotbar.scroll(e.deltaY);
   },
   { passive: true },
@@ -188,14 +167,18 @@ window.addEventListener('resize', () => {
 });
 
 // ----- Mobs (Sprint 11/12): animals + monsters with AI and combat -----
-const PLAYER_ATTACK_DAMAGE = 4;
 const ATTACK_REACH = 5;
-const mobManager = new MobManager(world, scene, (x, y, z, id) =>
-  chunkManager.editBlock(x, y, z, id),
+const mobManager = new MobManager(
+  world,
+  scene,
+  (x, y, z, id) => chunkManager.editBlock(x, y, z, id),
+  (item, count) => inventory.add(item, count), // mob drops → inventory
 );
-interaction.setAttackMob((ox, oy, oz, dx, dy, dz) =>
-  mobManager.attackAlongRay(ox, oy, oz, dx, dy, dz, ATTACK_REACH, PLAYER_ATTACK_DAMAGE),
-);
+// Attack damage comes from the selected tool (sword > axe > hand).
+interaction.setAttackMob((ox, oy, oz, dx, dy, dz) => {
+  const dmg = toolOf(inventory.selectedStack()?.item ?? -1)?.attack ?? 1;
+  return mobManager.attackAlongRay(ox, oy, oz, dx, dy, dz, ATTACK_REACH, dmg);
+});
 
 const clock = new THREE.Clock();
 const eye = new THREE.Vector3();
@@ -236,7 +219,9 @@ function animate() {
     player.hurt(amount),
   );
 
-  // Health HUD + death/respawn.
+  // Armor (from equipped gear) + health HUD + death/respawn.
+  player.armorPoints = inventory.totalDefense();
+  hud.setArmor(player.armorPoints);
   if (player.justHurt) {
     hud.flashDamage();
     player.justHurt = false;
@@ -300,6 +285,7 @@ animate();
   sky,
   hotbar,
   inventory,
+  inventoryScreen,
   mobManager,
   getFrames: () => frames,
   debug: {
@@ -317,15 +303,24 @@ animate();
     pitch: () => controls.pitch,
     locked: () => controls.locked,
     target: () => interaction.target,
-    held: () => interaction.heldBlock,
-    hotbarSelected: () => hotbar.selected,
-    hotbarSlots: () => hotbar.slots.slice(),
+    held: () => inventory.selectedStack(),
+    hotbarSelected: () => inventory.selected,
     selectSlot: (i: number) => hotbar.select(i),
     scrollHotbar: (d: number) => hotbar.scroll(d),
-    inventoryOpen: () => inventory.isOpen,
-    openInventory: () => openInventory(),
-    closeInventory: () => closeInventory(),
-    pickBlock: (b: number) => hotbar.setSlot(hotbar.selected, b as BlockId),
+    inventoryOpen: () => inventoryScreen.isOpen,
+    openInventory: () => openScreen(false),
+    openTable: () => openScreen(true),
+    closeInventory: () => inventoryScreen.close(),
+    invState: () => inventoryScreen.debugState(),
+    give: (item: number, count: number) => inventory.add(item, count),
+    count: (item: number) => inventory.countOf(item),
+    craft: (recipeId: string) => {
+      const r = RECIPES.find((x) => x.id === recipeId);
+      return r ? inventoryScreen.craftFromInventory(r) : false;
+    },
+    slots: () => inventory.slots.map((s) => (s ? { item: s.item, count: s.count, name: itemName(s.item) } : null)),
+    defense: () => inventory.totalDefense(),
+    armorPoints: () => player.armorPoints,
     mobCount: () => mobManager.count,
     mobKinds: () => mobManager.countByKind(),
     mobs: () =>
@@ -357,8 +352,8 @@ animate();
 };
 
 if (bootStatus) {
-  bootStatus.textContent = `Sprint 12 — 10 mob types (animals + monsters) · combat · [E] inventory (seed ${seed})`;
+  bootStatus.textContent = `Sprint 13 — crafting · gather + craft tools/weapons/bed/armor · [E] inventory (seed ${seed})`;
 }
 console.log(
-  `[Minecraft Clone] Sprint 12 — 10 mob types: pig/cow/sheep/chicken + zombie/skeleton/creeper/spider/slime/enderman (seed ${seed})`,
+  `[Minecraft Clone] Sprint 13 — crafting system (items, inventory, recipes, tools, armor) online (seed ${seed})`,
 );

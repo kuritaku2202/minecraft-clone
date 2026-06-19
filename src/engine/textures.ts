@@ -203,6 +203,130 @@ export function tilePixel(tile: number, px: number, py: number): RGB {
       b = 248 + j;
       break;
     }
+    case Tile.Wool: {
+      const j = jitter(px * 9 + py * 11, 10);
+      r = 232 + j;
+      g = 232 + j;
+      b = 228 + j;
+      break;
+    }
+    case Tile.CraftingTableTop: {
+      // Plank base with a dark 4x4 crafting grid overlay.
+      const j = jitter(px * 5 + py * 17, 8);
+      r = 168 + j;
+      g = 132 + j;
+      b = 80 + j;
+      if (px === 8 || py === 8 || px === 3 || py === 3 || px === 13 || py === 13) {
+        r *= 0.5;
+        g *= 0.5;
+        b *= 0.5;
+      }
+      break;
+    }
+    case Tile.CraftingTableSide: {
+      // Planks with a tool/saw motif: a darker upper band.
+      const j = jitter(px * 7 + py * 13, 8);
+      r = 150 + j;
+      g = 116 + j;
+      b = 72 + j;
+      if (py < 5 && (px + py) % 3 === 0) {
+        r *= 0.6;
+        g *= 0.6;
+        b *= 0.6;
+      }
+      break;
+    }
+    case Tile.FurnaceSide:
+    case Tile.FurnaceTop: {
+      // Cobblestone-grey body.
+      const j = jitter(px * 13 + py * 23, 16);
+      r = 116 + j;
+      g = 116 + j;
+      b = 120 + j;
+      if (px % 5 === 0 || py % 5 === 0) {
+        r *= 0.7;
+        g *= 0.7;
+        b *= 0.7;
+      }
+      break;
+    }
+    case Tile.FurnaceFront: {
+      // Grey with a dark mouth and glowing embers near the bottom.
+      const j = jitter(px * 13 + py * 23, 14);
+      r = 116 + j;
+      g = 116 + j;
+      b = 120 + j;
+      if (px >= 4 && px <= 11 && py >= 5 && py <= 12) {
+        r = 36;
+        g = 30;
+        b = 30;
+        if (py >= 9 && hash01(px, py) > 0.5) {
+          r = 220;
+          g = 120;
+          b = 30;
+        }
+      }
+      break;
+    }
+    case Tile.ChestTop: {
+      // Wood lid with a darker rim and a latch.
+      const j = jitter(px * 7 + py * 5, 8);
+      r = 150 + j;
+      g = 104 + j;
+      b = 52 + j;
+      if (px === 0 || py === 0 || px === 15 || py === 15) {
+        r *= 0.6;
+        g *= 0.6;
+        b *= 0.6;
+      }
+      break;
+    }
+    case Tile.ChestSide:
+    case Tile.ChestFront: {
+      const j = jitter(px * 9 + py * 7, 8);
+      r = 138 + j;
+      g = 94 + j;
+      b = 46 + j;
+      // Iron band around the middle + latch on the front.
+      if (py >= 7 && py <= 9) {
+        r = 70;
+        g = 60;
+        b = 48;
+      }
+      if (tile === Tile.ChestFront && px >= 7 && px <= 8 && py >= 7 && py <= 10) {
+        r = 200;
+        g = 200;
+        b = 205; // latch
+      }
+      break;
+    }
+    case Tile.BedTop: {
+      // Red quilt with a pillow band at one end.
+      const j = jitter(px * 11 + py * 3, 10);
+      r = 190 + j;
+      g = 46 + j;
+      b = 46 + j;
+      if (py < 4) {
+        r = 235;
+        g = 235;
+        b = 235; // pillow
+      }
+      break;
+    }
+    case Tile.BedSide: {
+      // Red mattress over a wooden frame base.
+      const j = jitter(px * 7 + py * 9, 8);
+      if (py < 9) {
+        r = 180 + j;
+        g = 44 + j;
+        b = 44 + j; // mattress
+      } else {
+        r = 120 + j;
+        g = 84 + j;
+        b = 48 + j; // wood frame
+      }
+      break;
+    }
   }
   // Darken the 1px ring so per-block boundaries stay visible on merged quads.
   if (px === 0 || py === 0 || px === TILE_PX - 1 || py === TILE_PX - 1) {

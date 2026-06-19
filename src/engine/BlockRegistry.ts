@@ -19,6 +19,11 @@ export enum BlockId {
   CoalOre = 12,
   IronOre = 13,
   Snow = 14,
+  Wool = 15,
+  CraftingTable = 16,
+  Furnace = 17,
+  Chest = 18,
+  Bed = 19,
 }
 
 /**
@@ -43,10 +48,21 @@ export const Tile = {
   CoalOre: 13,
   IronOre: 14,
   Snow: 15,
+  Wool: 16,
+  CraftingTableTop: 17,
+  CraftingTableSide: 18,
+  FurnaceFront: 19,
+  FurnaceSide: 20,
+  FurnaceTop: 21,
+  ChestTop: 22,
+  ChestSide: 23,
+  ChestFront: 24,
+  BedTop: 25,
+  BedSide: 26,
 } as const;
 
 /** Total tiles (texture-array layers). Keep in sync with {@link Tile}. */
-export const TILE_COUNT = 16;
+export const TILE_COUNT = 27;
 
 export type FaceKey = 'top' | 'bottom' | 'side';
 
@@ -170,6 +186,45 @@ export const BLOCKS: Record<BlockId, BlockDef> = {
     solid: true,
     transparent: false,
     tiles: { top: Tile.Snow, bottom: Tile.Snow, side: Tile.Snow },
+  },
+  [BlockId.Wool]: {
+    id: BlockId.Wool,
+    name: 'wool',
+    solid: true,
+    transparent: false,
+    tiles: { top: Tile.Wool, bottom: Tile.Wool, side: Tile.Wool },
+  },
+  [BlockId.CraftingTable]: {
+    id: BlockId.CraftingTable,
+    name: 'crafting table',
+    solid: true,
+    transparent: false,
+    tiles: {
+      top: Tile.CraftingTableTop,
+      bottom: Tile.OakPlanks,
+      side: Tile.CraftingTableSide,
+    },
+  },
+  [BlockId.Furnace]: {
+    id: BlockId.Furnace,
+    name: 'furnace',
+    solid: true,
+    transparent: false,
+    tiles: { top: Tile.FurnaceTop, bottom: Tile.FurnaceTop, side: Tile.FurnaceSide },
+  },
+  [BlockId.Chest]: {
+    id: BlockId.Chest,
+    name: 'chest',
+    solid: true,
+    transparent: false,
+    tiles: { top: Tile.ChestTop, bottom: Tile.ChestTop, side: Tile.ChestSide },
+  },
+  [BlockId.Bed]: {
+    id: BlockId.Bed,
+    name: 'bed',
+    solid: true,
+    transparent: false,
+    tiles: { top: Tile.BedTop, bottom: Tile.OakPlanks, side: Tile.BedSide },
   },
 };
 

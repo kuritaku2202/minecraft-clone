@@ -5,6 +5,9 @@ import { Controls } from './Controls';
 import { HUD } from '../ui/HUD';
 import { raycastVoxel, type VoxelHit } from '../engine/raycast';
 import { BlockId, isSolid } from '../engine/BlockRegistry';
+import { Inventory } from '../items/Inventory';
+import { blockOf, toolOf } from '../items/items';
+import { blockDropItem } from '../items/drops';
 
 /** Applies a block edit (write + re-mesh + notify); supplied by ChunkManager. */
 export type EditBlockFn = (x: number, y: number, z: number, id: BlockId) => void;
@@ -25,7 +28,6 @@ const BREAK_TIME = 0.35; // seconds to break a block (uniform for now)
  */
 export class Interaction {
   target: VoxelHit | null = null;
-  heldBlock: BlockId = BlockId.Stone;
   /** When true (e.g. inventory open) break/place and targeting are suspended. */
   blocked = false;
 
@@ -48,6 +50,8 @@ export class Interaction {
     private readonly hud: HUD,
     scene: THREE.Scene,
     canvas: HTMLCanvasElement,
+    private readonly inv: Inventory,
+    private readonly openTable: () => void,
   ) {
     this.highlight = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(1.002, 1.002, 1.002)),
@@ -72,10 +76,6 @@ export class Interaction {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  setHeld(id: BlockId): void {
-    this.heldBlock = id;
-  }
-
   /** Supply the mob melee hook (wired in main.ts). */
   setAttackMob(fn: AttackMobFn): void {
     this.attackMob = fn;
@@ -93,27 +93,52 @@ export class Interaction {
     this.applyEdit(x, y, z, id);
   }
 
-  /** Place the held block against the targeted face. */
+  /**
+   * Right-click: open a crafting table if looking at one, otherwise place the
+   * selected hotbar block against the targeted face (consuming one).
+   */
   place(): boolean {
     if (this.blocked) return false; // suspended (e.g. inventory open)
-    if (this.heldBlock === BlockId.Air) return false; // empty hotbar slot
     const hit = this.target;
     if (!hit) return false;
+
+    // Looking at a crafting table → open the 3x3 crafting UI.
+    if (this.world.getBlock(hit.x, hit.y, hit.z) === BlockId.CraftingTable) {
+      this.openTable();
+      return true;
+    }
+
+    const stack = this.inv.selectedStack();
+    if (!stack) return false;
+    const block = blockOf(stack.item);
+    if (block === null || block === BlockId.Air) return false; // not placeable
+
     const px = hit.x + hit.nx;
     const py = hit.y + hit.ny;
     const pz = hit.z + hit.nz;
     if (isSolid(this.world.getBlock(px, py, pz))) return false;
     if (this.intersectsPlayer(px, py, pz)) return false; // don't bury the player
-    this.editBlock(px, py, pz, this.heldBlock);
+    this.editBlock(px, py, pz, block);
+    this.inv.decrement(this.inv.selected);
     return true;
   }
 
-  /** Instantly break the targeted block (used by tests / creative). */
+  /** Break the targeted block, dropping its item into the inventory. */
+  private mineBlock(x: number, y: number, z: number): void {
+    const block = this.world.getBlock(x, y, z);
+    const tool = toolOf(this.inv.selectedStack()?.item ?? -1);
+    const hasPickaxe = tool?.type === 'pickaxe';
+    const drop = blockDropItem(block, hasPickaxe);
+    this.editBlock(x, y, z, BlockId.Air);
+    if (drop !== null) this.inv.add(drop, 1);
+  }
+
+  /** Instantly break the targeted block (used by tests). */
   breakTarget(): boolean {
     if (this.blocked) return false; // suspended (e.g. inventory open)
     const hit = this.target;
     if (!hit) return false;
-    this.editBlock(hit.x, hit.y, hit.z, BlockId.Air);
+    this.mineBlock(hit.x, hit.y, hit.z);
     return true;
   }
 
@@ -176,7 +201,7 @@ export class Interaction {
         this.breakProgress = 0;
       }
       if (this.breakProgress >= 1) {
-        this.editBlock(hit.x, hit.y, hit.z, BlockId.Air);
+        this.mineBlock(hit.x, hit.y, hit.z);
         this.breakProgress = 0;
         this.breakKey = null;
       }
