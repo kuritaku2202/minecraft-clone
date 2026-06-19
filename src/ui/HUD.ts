@@ -10,6 +10,8 @@ export class HUD {
   private readonly breakFill: HTMLElement;
   private readonly breakBar: HTMLElement;
   private readonly hearts: HTMLElement[] = [];
+  private readonly armorRow: HTMLElement;
+  private readonly armorIcons: HTMLElement[] = [];
   private readonly damageFlash: HTMLElement;
   private readonly deathOverlay: HTMLElement;
 
@@ -54,6 +56,20 @@ export class HUD {
       heartRow.appendChild(h);
     }
 
+    // Armor bar, just above the hearts.
+    this.armorRow = document.createElement('div');
+    this.armorRow.id = 'armor';
+    this.armorRow.style.cssText =
+      'position:fixed;left:50%;bottom:92px;transform:translateX(-50%);' +
+      'display:none;gap:2px;pointer-events:none;z-index:25;' +
+      'font:16px system-ui,sans-serif;text-shadow:0 1px 2px #000;';
+    for (let i = 0; i < HEART_COUNT; i++) {
+      const a = document.createElement('span');
+      a.textContent = '🛡';
+      this.armorIcons.push(a);
+      this.armorRow.appendChild(a);
+    }
+
     // Full-screen red damage flash (pulsed on hit).
     this.damageFlash = document.createElement('div');
     this.damageFlash.style.cssText =
@@ -68,8 +84,21 @@ export class HUD {
       'text-shadow:0 2px 6px #000;pointer-events:none;z-index:45;';
     this.deathOverlay.textContent = 'You died — respawning…';
 
-    root.append(cross, this.breakBar, heartRow, this.damageFlash, this.deathOverlay);
+    root.append(cross, this.breakBar, this.armorRow, heartRow, this.damageFlash, this.deathOverlay);
     this.setHealth(HEART_COUNT * 2);
+  }
+
+  /** Update the armor bar from armor points (each shield ≈ 2 points). */
+  setArmor(points: number): void {
+    if (points <= 0) {
+      this.armorRow.style.display = 'none';
+      return;
+    }
+    this.armorRow.style.display = 'flex';
+    const full = Math.round(points / 2);
+    for (let i = 0; i < this.armorIcons.length; i++) {
+      this.armorIcons[i].style.opacity = i < full ? '1' : '0.25';
+    }
   }
 
   /** Update the heart row from current health (0..20). */
